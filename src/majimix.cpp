@@ -65,12 +65,12 @@
 #include <condition_variable>
 #include <thread>
 
-#ifdef __linux__ 
-	#include <pthread.h>
-	#include <sched.h>
-#elif _WIN32
-    // FIXME 
-#endif
+// #ifdef __linux__ 
+// 	#include <pthread.h>
+// 	#include <sched.h>
+// #elif _WIN32
+//     // FIXME 
+// #endif
 
 
 #include "kss.hpp"
@@ -875,285 +875,6 @@ double SamplePCM::sample_time() const
 
 
 
-///* ---------- Buffered Sample ----------
-// *
-// */
-//
-//
-///**
-// * @class BufferedSample
-// *
-// * @brief Buffered Sample. Reduces waiting time when getting data.
-// *
-// *        BufferedSample is a class derived from Sample encapsulating a Sample
-// *        Its purpose is to reduce the delay in loading Sample data during a mixer call.
-// *        To do this, a dedicated thread uses the Sample::read method to preload the data in a buffer
-// *        that becomes directly available to the mixer.
-// *        This class is useful for Samples using disk access to load data during playback (Sample::read method)
-// *        and can (should) be used for the Vorbis SampleVorbis implementation.
-// *        On the other hand, this class has no (or very little) interest for SamplePCM whose data is already in memory
-// *        (the only advantage in this case is to convert the PCM data to the mixer format in another thread
-// *        than the PortAudio thread).
-// *
-// */
-//class BufferedSample : public Sample {
-//	/** The Sample */
-//	std::unique_ptr<Sample> sample;
-//
-//	/** Buffer "packet" number */
-//	constexpr static int range_count = 3;
-//	/** Buffer "packet" size */
-//	constexpr static int range_size  = 4096;
-//	/** Buffer size */
-//	constexpr static int data_size   = range_count * range_size;
-//	/**
-//	 * The buffer
-//	 * Contains data read from sample.
-//	 */
-//	int buffer[data_size];
-//
-//
-//	/* atomic variables for threads synchronisation */
-//
-//	std::atomic<int> read_range;
-//	std::atomic<int> write_range;
-//	std::atomic<bool> producer_on;
-//
-//	int range_sample_count[range_count];
-//	int write_range_number;
-//	int read_range_number;
-//
-//// mode loop gere par mixer : ok mais moins precis
-////	std::atomic<bool> seek_updated;
-////	std::atomic<int> seek_pos;
-//
-//
-//	int mixer_channels;
-//	int max_samples_per_range;
-//	int read_inrange_sample_index; // index de lecture du range courant
-//
-//	/** producer thread : read data from the sample and fill the buffer */
-//	std::thread producer;
-//	/* mutex and condition_variable used to pause producer thread */
-//	std::mutex m;
-//	std::condition_variable cv;
-//
-//	/* producer thread function : fills buffer whith audio data read from sample */
-//	void write();
-//	/* start the producer thread */
-//	void start();
-//	/* stop the producer thread */
-//	void stop();
-//
-//public:
-//	BufferedSample(std::unique_ptr<Sample>&& sample, int mixer_channels);
-//	~BufferedSample();
-//	/* pos sample position */
-//	void seek(int pos);
-//	void seek_time(double pos);
-//	int read(int* buffer, int requested_sample_count);
-//
-//};
-//
-//BufferedSample::BufferedSample(std::unique_ptr<Sample>&& sample, int mixer_channels)
-//: sample {std::move(sample)},
-//  range_sample_count {0, 0, 0},
-//  write_range_number {0},
-//  read_range_number {0},
-//  mixer_channels {mixer_channels},
-//  max_samples_per_range {range_size / mixer_channels},
-//  read_inrange_sample_index {0}
-//  //seek{0}
-//{
-//	// std::memset(buffer, 0, sizeof buffer);
-//	//max_samples_per_range = range_size / mixer_channels;
-////	std::cout << "producer_on lock free  " << producer_on.is_lock_free() << "\n";
-////	std::cout << "read_range lock free   " << read_range.is_lock_free() << "\n";
-////	std::cout << "seek_pos lock free     " << seek_pos.is_lock_free() << "\n";
-////	std::cout << "seek_updated lock free " << seek_updated.is_lock_free() << "\n";
-////	std::cout << "write_range lock free  " << write_range.is_lock_free() << "\n";
-////	std::cout << "producer_on lock free  " << producer_on.is_lock_free() << "\n";
-//	start();
-//}
-//
-//BufferedSample::~BufferedSample()
-//{
-//	std::cout << "~BufferedSample stopping \n";
-//	stop();
-//	std::cout << "~BufferedSample stopped\n";
-//}
-//
-//void BufferedSample::start()
-//{
-//	producer_on = true;
-//	write_range_number = 0;
-//	write_range = 0;
-//	read_range = 0;
-//	producer = std::thread(&BufferedSample::write, this);
-//	//consumer = std::thread(&Procon::read, this);
-//}
-//void BufferedSample::stop()
-//{
-//	producer_on = false;
-//	cv.notify_one();
-//	if(producer.joinable())
-//		producer.join();
-//	std::cout << "BufferedSample stopped\n";
-//}
-//
-//void BufferedSample::seek(int pos)
-//{
-//	// FIXME : revoir - doit être thread-safe
-//	//         idealement Sample::seek thread-safe et il suffirait d'appeler sample->seek
-//// ne sert plus : mode loop demandé par mixer provoque underrun
-////	seek_pos = pos;
-////	seek_updated = true;
-//}
-//void BufferedSample::seek_time(double pos)
-//{
-//	// FIXME revoir, même problématique que seek
-//}
-//
-//
-//void BufferedSample::write()
-//{
-//	int sample_read, next;
-////	bool eof = false;
-//	while(producer_on)
-//	{
-//		// seul le producer peut acceder à vorbisfile => le seek se fait ici
-//// // seek demandé depuis le mixer : ok mais provoque un leger underrun (delay) lors du loop
-////		if(seek_updated)
-////		{
-////			sample->seek(seek_pos);
-////			seek_updated = false;
-////			eof = false;
-////		}
-////
-////		if(eof)
-////			sample_read = 0;
-////		else
-////		{
-////			sample_read = sample->read(buffer + write_range, max_samples_per_range);
-////			eof = sample_read < max_samples_per_range;
-////		}
-//
-//// auto loop : on loop systematiquement
-////             en mode mixer loop : ok
-////             en mode moxer once (!loop) : le mixer arrêtera automatiquement
-//		sample_read = sample->read(buffer + write_range, max_samples_per_range);
-//		// EOF - AUTOLOOP : plus necessaire les Sample étant par defaut en mode rewind automatique
-//		// if(sample_read < max_samples_per_range)
-//		//	sample->seek(0);
-//
-//// //////////////
-//
-//
-////		std::cout << "write cycle " << write_cycle << " range " << write_range << "\n";
-//		// on stock le nombre de sample recuperes
-//		range_sample_count[write_range_number] = sample_read;
-//		write_range_number = (write_range_number +1) % range_count;
-//
-//		// on verifie que le range suivant est libre
-//		next = (write_range + range_size) % data_size;
-//		while(next == read_range && producer_on)
-//		{
-//			// wait for reader
-//			//std::this_thread::sleep_for(std::chrono::microseconds(1));
-//
-//			// test sans micropause mais avec condition_variable
-//			// un if devrait suffire plutôt qu'un while (mais doute spurious wakeup)
-////			std::cout << "producer waits\n";
-//			std::unique_lock<std::mutex> lk(m); 			// lock
-//			cv.wait(lk, [&] {return next != read_range || !producer_on;});  // unlock/wait -> lock after wait (il faut un notify du reader pour passer)
-//			m.unlock();
-//		}
-//		// on passe au range suivant
-//		write_range = next;
-//	}
-//	std::cout << "stop producer\n";
-//}
-//
-///**
-// * @fn int read(int*, int)
-// * @brief
-// *
-// * XXX a verifier (avec toutes les limites !)
-// *
-// *     + (fixed ?) j'ai encore un problème ici (en lien avec le writer)
-// *       si mixerchannel en loop et que j'atteinds la fin du fichier le writer va mettre 0 dans le fichier
-// *       je vais lire ici avec 0 => next = 0 => next = 0 => ... il faut que je m'arrête un moment et retourner 0 ou sample count
-// *
-// *
-// *
-// * @param out_buffer
-// * @param requested_sample_count, number of sample requested by the caller
-// * @return the number of sample proceced (copied to out_buffer)
-// */
-//int BufferedSample::read(int* out_buffer, int requested_sample_count)
-//{
-//
-//
-//	int out_sample_count = 0;
-//	int remaining_out_sample_count = requested_sample_count;
-//	// int out_index = 0;
-//	bool done = false;
-//
-//	while(!done)
-//	{
-//		if(write_range == read_range && producer_on)
-//		{
-//			// we cant't wait for producer thread => fill the buffer with 0
-//			// utile ? :
-//			std::cerr << "underrun\n";
-//			std::fill(out_buffer + out_sample_count * mixer_channels, out_buffer + requested_sample_count * mixer_channels, 0);
-//			return requested_sample_count;
-//		}
-//
-//
-//		// lecture du range courant
-//
-//		// XXX prendre en compte total_range_sample_count = 0 ! (eof)
-//
-//
-//		int total_range_sample_count = range_sample_count[read_range_number];
-//		int remaining_range_sample_count = total_range_sample_count - read_inrange_sample_index;
-//		int take_range_sample_count = std::min(remaining_range_sample_count, remaining_out_sample_count);
-////		std::cerr << "range " << read_range_number << " total range sample_count " << total_range_sample_count << " / " << max_samples_per_range << " idx  " << read_inrange_sample_index << " out " << out_sample_count << " rem " << remaining_out_sample_count << " requ " << requested_sample_count <<"\n";
-//// !!! si total_range_sample_count = 0
-//
-//		int cur_range_position = read_range + read_inrange_sample_index * mixer_channels;
-//		std::copy(buffer + cur_range_position, buffer + cur_range_position + take_range_sample_count * mixer_channels, out_buffer +  out_sample_count * mixer_channels);
-//
-//		// on comptabilise
-//		out_sample_count += take_range_sample_count;
-//		remaining_out_sample_count   -= take_range_sample_count;
-//		remaining_range_sample_count -= take_range_sample_count;
-//		if(remaining_range_sample_count)
-//			read_inrange_sample_index += take_range_sample_count;
-//		else
-//		{
-//			read_inrange_sample_index = 0;
-//			// next
-//			read_range = (read_range + range_size) % data_size;
-//			read_range_number = (read_range_number +1) % range_count;
-//			cv.notify_one();
-//		}
-//
-//
-//		/*
-//		 * we are done if
-//		 *  - there is no remaining_out_sample_count (ie out_sample_count == requested_sample_count)
-//		 *  - or there is no remaining_range_sample_count AND number of samples in the range is lower than the max
-//		 */
-//		done = !remaining_out_sample_count || (!remaining_range_sample_count && total_range_sample_count < max_samples_per_range);
-//	}
-//	return out_sample_count;
-//}
-//
-
-
-
 /* ---------- VORBIS ----------
  *
  */
@@ -1277,12 +998,6 @@ void SourceVorbis::set_output_format(int samples_per_sec, int channels, int bits
 /* create a SamplePCM associated with this Source */
 std::unique_ptr<Sample> SourceVorbis::create_sample()
 {
-//	auto ptr =  std::make_unique<SampleVorbis>(*this);
-//	// version bufferisee
-//	if(ptr->initialized)
-//		return std::make_unique<BufferedSample>(std::move(ptr), mixer_channels);
-//	return nullptr;
-	// no need of buffered version anymore
 	return std::make_unique<SampleVorbis>(*this);
 }
 
@@ -1325,7 +1040,7 @@ SampleVorbis::SampleVorbis(const SourceVorbis &s)
 
 		for(int i=0 ; i < ov_streams(&file); i++)
 		{
-			// XXX refaire comme avant et gerer un tableau de rate !
+			// XXX gerer un tableau de rate !
 			//     en cas de multistream - rate et channels peuvent changer
 			vorbis_info *vi = ov_info(&file,i);
 			std::cout <<"\tlogical bitstream section " << (i+1) <<" information:\n";
@@ -1558,39 +1273,6 @@ MixerChannel::MixerChannel()
   sid {0}
 
 {}
-//
-//bool MixerChannel::is_active() const
-//{
-//	return active && !stopped;
-//}
-
-
-//void MixerChannel::stop()
-//{
-//	stopped = true;
-//	paused = false;
-//}
-//
-//bool MixerChannel::start()
-//{
-//	if(!active && sample)
-//	{
-//		stopped = false;
-//		active = true;
-//		return true;
-//	}
-//	return false;
-//}
-//
-//void MixerChannel::set_paused(bool pause)
-//{
-//	paused = pause;
-//}
-//
-//bool MixerChannel::is_paused() const
-//{
-//	return paused;
-//}
 
 
 
@@ -1826,45 +1508,45 @@ void BufferedMixer::start()
 		producer_on = true;
 		producer = std::thread(&BufferedMixer::write, this);
 
-#ifdef __linux__
-//		int rt_pf = SCHED_FIFO;
-//		int rt_pr = SCHED_RR;
-		std::cout << "********** TRHEAD PRIORITY **********\n";
-		std::cout << "SCHED_FIFO\n";
-		std::cout << "MIN : " << sched_get_priority_min(SCHED_FIFO)<<"\n";
-		std::cout << "MAX : " << sched_get_priority_max(SCHED_FIFO)<<"\n";
-		std::cout << "------------------------------------\n";
-		std::cout << "SCHED_RR\n";
-		std::cout << "MIN : " << sched_get_priority_min(SCHED_RR)<<"\n";
-		std::cout << "MAX : " << sched_get_priority_max(SCHED_RR)<<"\n";
-		std::cout << "*************************************\n";
+// #ifdef __linux__
+// //		int rt_pf = SCHED_FIFO;
+// //		int rt_pr = SCHED_RR;
+// 		std::cout << "********** TRHEAD PRIORITY **********\n";
+// 		std::cout << "SCHED_FIFO\n";
+// 		std::cout << "MIN : " << sched_get_priority_min(SCHED_FIFO)<<"\n";
+// 		std::cout << "MAX : " << sched_get_priority_max(SCHED_FIFO)<<"\n";
+// 		std::cout << "------------------------------------\n";
+// 		std::cout << "SCHED_RR\n";
+// 		std::cout << "MIN : " << sched_get_priority_min(SCHED_RR)<<"\n";
+// 		std::cout << "MAX : " << sched_get_priority_max(SCHED_RR)<<"\n";
+// 		std::cout << "*************************************\n";
 
-        // be careful ! it is just a test
-		// we have to verify min max priorites values to get range and chose a good priority value
-		// phange thread priority
+//         // be careful ! it is just a test
+// 		// we have to verify min max priorites values to get range and chose a good priority value
+// 		// phange thread priority
 		
-		// necessite des privilèges et avec un sudo l'appli fonctionne mal
-		// 
-		// sched_param schp {25};
-		// // schp.sched_priority = 25;
-	    // if (pthread_setschedparam(producer.native_handle(), SCHED_FIFO, &schp)) 
-		// {
-        // 	std::cout << "Failed to setschedparam: " << std::strerror(errno) << '\n';
-    	// }
+// 		// necessite des privilèges et avec un sudo l'appli fonctionne mal
+// 		// 
+// 		// sched_param schp {25};
+// 		// // schp.sched_priority = 25;
+// 	    // if (pthread_setschedparam(producer.native_handle(), SCHED_FIFO, &schp)) 
+// 		// {
+//         // 	std::cout << "Failed to setschedparam: " << std::strerror(errno) << '\n';
+//     	// }
 
-		// pthread_setschedparam(producer.native_handle(), &pol, &schp);
+// 		// pthread_setschedparam(producer.native_handle(), &pol, &schp);
 
-		sched_param sch;
-    	int policy; 
-    	pthread_getschedparam(producer.native_handle(), &policy, &sch);
-    	std::cout << "Thread producer scheduling policy is " << policy << '\n';
-		std::cout << "Thread producer is executing at priority " << sch.sched_priority << '\n';
+// 		sched_param sch;
+//     	int policy; 
+//     	pthread_getschedparam(producer.native_handle(), &policy, &sch);
+//     	std::cout << "Thread producer scheduling policy is " << policy << '\n';
+// 		std::cout << "Thread producer is executing at priority " << sch.sched_priority << '\n';
 
 
 
-#elif _WIN32
+// #elif _WIN32
 
-#endif
+// #endif
 
 	}
 }
@@ -2699,16 +2381,6 @@ void MajimixPa::stop_playback(int play_handle)
 				}
 			}
 		}
-
-		/* OLD AND GOOD
-		if(source_id && channel_id)
-		{
-			auto &channel = mixer_channels[channel_id-1];
-			if(static_cast<int>(source_id) == channel->sid)
-				channel->stopped = true;
-			//mixer_channels[channel_id-1]->stopped = true;
-		}
-		*/
 	}
 }
 
@@ -2721,7 +2393,7 @@ void MajimixPa::set_master_volume(int v)
 
 
 /**
- * TODO  Channels ! => faur update_volume  (0 : master source ou sample)
+ * TODO  Channels ! =>  update_volume  (0 : master source ou sample)
  * 
  * 
  *
@@ -3028,7 +2700,7 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 
 				// TODO : ici on recupere dans le bon format + on ajoute à internal_mix_buffer avant d'ajuster le volume
 				//        donc 2 phases
-				//        on pourrait essayer d'ajouter directement sans passer par internal_sample_buffer mais necessite une grosse transformation dans la recupération des samples
+				//        on pourrait essayer d'ajouter directement sans passer par internal_sample_buffer mais necessite une mise à jour pour la recupération des samples
 
 
 				sample_count = mix_channel->sample->read(&internal_sample_buffer[0], requested_sample_count);
@@ -3058,14 +2730,6 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 			}
 		}
 	}
-
-	// support kss
-	// 2 possibilités :
-	//		1 - mixage global de toutes les line de cartridgekss
-	//			simple mais on traite l'ensemble comme une seule voix
-	//		2 - mixage par line
-	//			traitement plus lourd mais on peut inserer ici des traitement spécifiques sur des voix
-
 
 	for(auto &ck : kss_cartridges)
 	{
