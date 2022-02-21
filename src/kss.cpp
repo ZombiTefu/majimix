@@ -450,7 +450,7 @@ int CartridgeKSS::read_line_convert(std::vector<int>::iterator it_out, KSSLine &
 			{
 				line.current_track = line.next_track;
 				line.next_track = 0;
-				KSSPLAY_reset(line.kssplay_ptr.get(), line.current_track, 0);
+				KSSPLAY_reset(line.kssplay_ptr.get(), line.current_track, m_kss_cpu_speed);
 			}
 
 			// recupération des données
@@ -712,12 +712,16 @@ void CartridgeKSS::set_kss_line_frequency(KSSLine *l, int frequency)
 	}
 	else
 	{
-		uint32_t position =  l->kssplay_ptr->decoded_length;
-		// ajustement de la position avec le changement de frequence
-		position = position * l->kssplay_ptr->vsync_freq / frequency;
+		// There is a slight offset when converting 50/60 Hz
+		// Empirical gap adjustment - works pretty well for 50/60 switch
+		// not tested for other frequencies
+		uint32_t position =  static_cast<uint64_t>(l->kssplay_ptr->decoded_length) * 
+							 static_cast<uint64_t>(l->kssplay_ptr->vsync_freq * (1024 + (l->kssplay_ptr->vsync_freq - frequency) * 0.4)) /
+							 (static_cast<uint64_t>(frequency) << 10);
+
 		l->kssplay_ptr->vsync_freq = frequency;
 		// cpu_speed = 0:auto 1:3.58MHz 2:7.16MHz ...
-		KSSPLAY_reset(l->kssplay_ptr.get(), l->current_track, 0);
+		KSSPLAY_reset(l->kssplay_ptr.get(), l->current_track, m_kss_cpu_speed);
 		KSSPLAY_calc_silent(l->kssplay_ptr.get(), position);
 	}
 }

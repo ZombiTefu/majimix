@@ -41,37 +41,6 @@
 #include <memory>
 #include <functional>
 
-/**
- * \namespace majimix::kss
- * \brief Support KSS pour le Majimix mixer
- * \details Les fichiers KSS sont des dump mémoire des données audio de jeux des ordinateurs MSX.
- *         Les classes et structures présentes ici permettent de lire ce type de fichiers à l'aide de la bibliothèque libkss (https://github.com/digital-sound-antiques/libkss).
- *         À la différence des sources classiques WAVE ou Vorbis, les sources KSS sont exploitées à l'aide d'une classe dédié CartridgeKSS.
- *
- *
- * \warning Attention ici :
- *          CartridgeKSS gère les KSSLine (voix - couple {KSS, KSSPLAY} ) pour obtenir voire mixer les données audio
- *          Il n'a aucune connaissance des éventuels thread l'appelant et N'EST PAS THREAD-SAFE !
- *          Toutes les méthode de CartridgeKSS son susceptibles de lire et modifier les KSS et KSSPLAY des KSSLine et ces structures
- *          ne doivent pas (jamais!) être accedées simultanément depuis plusieurs thread.
- *          C'est à l'appelant de synchroniser les appels - cela est prévu dans Majimix
- *          Majimix exploite un thread (T1) PortAudio qui récupère les données sonores au bon format (ex 16 bist stereo 44,1KHz) et ne doit jamais être
- *          bloqué (lock interdit)
- *
- * \warning	Pour pemettre une diffusion du son en continue, Majimix exploite un deuxième thread (T2) via la classe
- *          BufferedMixer qui supporte les locks.
- *          C'est dans ce thread que le mixage est effectué et bufferisé.
- *          Cela permet de lire les fichiers ogg et mixer les données audio.
- *
- *  \warning Le thread portaudio (T1) récupère les données du MixedBuffer (T2).
- *           Si MixedBuffer (T2) n'a pas eu suffisamment de temps pour préparer les données de portaudio,
- *           il fournit un buffer vide au thread portaudio (T1) qui peut continuer sans blocage.
- *           (cela veut dire aussi que la configuration du MixedBuffer est à revoir ;))
- *
- *           Ceci étant, il y a une exception :
- *           les appels une KSSLine inactive (active = false) peuvent être effectués depuis un autre thread sans risque
- *
- */
 namespace majimix::kss {
 
 KSS *load_kss(const std::string & filename);
@@ -80,42 +49,41 @@ void kssplay_deleter(KSSPLAY *kssplay);
 
 /**
  * \struct KSSLine kss.hpp "kss.hpp"
- * @brief KSSLine représente une voix (ligne) dans laquelle est associé un track (musique ou son).
- * @details KSSLine - triplet {KSS, KSSPLAY, numéro de track} permettant d'extraire les données audio PCM 16 bits d'une piste du fichier KSS
- *          Les données audio PCM du track peuvent être récupérées par la métode \a read de la classe \a CartridgeKSS.
+ * @brief KSSLine represents a voice (line) with an associated track (music or sound)
+ * @details KSSLine - Triplet {KSS, KSSPLAY, track number} to extract the 16-bit PCM audio data from KSS.
+ *                    The PCM audio data of the track can be retrieved with the read method of the CartridgeKSS class.
  */
 struct KSSLine
 {
     /**
-     * @brief Ancienneté de la \a line.
-     *
-     * Permet de déterminer l'ancienneté de la \a line. Cette valeur est lise à jour lors de l'activation de la \a line.
+     * @brief Age of the \a line.
      */
     int id;
 
     /**
-     * @brief KSS pointer (c.f. libkss) permettant l'extraction des données PCM
+     * @brief KSS pointer
      */
     std::unique_ptr<KSS, decltype(&kss_deleter)> kss_ptr;
     /**
-     * @brief KSSPLAY pointer (c.f. libkss) permettant l'extraction des données PCM
+     * @brief KSSPLAY pointer
      */
     std::unique_ptr<KSSPLAY, decltype(&kssplay_deleter)> kssplay_ptr;
 
-    // std::atomic is neither copyable nor movable => attention au vector !
     /**
-     * @brief Activité de la KSSLine.
+     * @brief KSSLine activity.
      *
-     * Determine l'activité de la \a line. Une \a line active est potentiellement en cours de traitement dans le thread effectuant la récupération et le mixage des données autio.
+     * An active \a line is potentially being processed in the thread performing the retrieval and mixing of the autio data.
      */
     std::atomic_bool active;
     std::atomic_bool pause;
+
     /**
      * Pour la detection automatique de fin de track (son ou musique).
      * Indique si la \a line est en mode autostop. Ce mode permet la désactivation automatique de la \a line
      * sans demande explicite utilisateur pour mettre fin au traitement de cette \a line lorsque le track est \em terminé.
      */
     std::atomic_bool autostop;
+    
     /*  indique s'il est possible de forcer la ligne cad : play force true peut prendre une ligne forcable */
     bool forcable;
 
@@ -171,6 +139,8 @@ class CartridgeKSS
 {
     // format KSSPLAY 16 bits
     constexpr static uint8_t m_kss_bits = 16;
+
+    constexpr static uint32_t m_kss_cpu_speed = 0; //  0:auto n:[1..8]
 
     // nombre de voix (lines)
     uint8_t m_lines_count;
