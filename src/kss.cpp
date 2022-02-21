@@ -310,15 +310,25 @@ void CartridgeKSS::init_line(KSS *kss_ref, KSSLine &line)
 
 	KSSPLAY_set_data(line.kssplay_ptr.get(), line.kss_ptr.get());
 
-	KSSPLAY_set_device_pan(line.kssplay_ptr.get(), EDSC_PSG,2);
-	KSSPLAY_set_device_pan(line.kssplay_ptr.get(), EDSC_SCC,3);
-	KSSPLAY_set_device_pan(line.kssplay_ptr.get(), EDSC_OPL,5);
-	KSSPLAY_set_device_pan(line.kssplay_ptr.get(), EDSC_OPLL,9);
+	if(m_channels > 1)
+	{
+		// stereo : see kss2wav.c (l 219)
 
-	// 1 = droite ; 2 = gauche ; 3 = centre
-	int opllPan = 3;
-	for(int ch=0; ch<14; ++ch)
-		KSSPLAY_set_channel_pan(line.kssplay_ptr.get(), EDSC_OPLL, ch,opllPan);
+		// MSX : PSG + SCC 
+		// Device pan : +128 left => -128 right (0 center)
+		// KSSPLAY_set_channel_pan : OPLL only
+	 	KSSPLAY_set_device_pan(line.kssplay_ptr.get(), EDSC_PSG, -32); // a little further to the right
+	 	KSSPLAY_set_device_pan(line.kssplay_ptr.get(), EDSC_SCC, 32);  // a little further to the left
+
+		line.kssplay_ptr->opll_stereo = 1;
+		KSSPLAY_set_channel_pan(line.kssplay_ptr.get(), EDSC_OPLL, 0, 1);
+		KSSPLAY_set_channel_pan(line.kssplay_ptr.get(), EDSC_OPLL, 1, 2);
+		KSSPLAY_set_channel_pan(line.kssplay_ptr.get(), EDSC_OPLL, 2, 1);
+		KSSPLAY_set_channel_pan(line.kssplay_ptr.get(), EDSC_OPLL, 3, 2);
+		KSSPLAY_set_channel_pan(line.kssplay_ptr.get(), EDSC_OPLL, 4, 1);
+		KSSPLAY_set_channel_pan(line.kssplay_ptr.get(), EDSC_OPLL, 5, 2);
+	}
+
 
 	KSSPLAY_set_silent_limit(line.kssplay_ptr.get(), m_silent_limit_ms);
 
