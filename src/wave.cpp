@@ -1,41 +1,38 @@
-/*
+/**
  * wave.cpp
  *
  * @author  François Jacobs
- * @date 13/02/2022
- * @version
+ * @date 07/03/2022
  *
- * @section majimix_lic_cpp LICENSE
+ * @section majimix_lic_hpp LICENSE
  *
  * The MIT License (MIT)
- *
- * Copyright © 2022  - François Jacobs
- * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * 
+ * Copyright © 2022 - François Jacobs
+ * Permission is hereby granted, free of charge, to any person obtaining a copy 
  * of this software and associated documentation files (the “Software”), to deal
  * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- * copies of the Software, and to permit persons to whom the Software is
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
+ * copies of the Software, and to permit persons to whom the Software is 
  * furnished to do so, subject to the following conditions:
- *
+ * 
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- *
+ * 
  * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+ * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
  * PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
  * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
  */
 
-#include "wave.hpp"
 
+#include "wave.hpp"
 #include <fstream>
 
-namespace majimix::wave
-{
-
+namespace majimix {
+namespace wave {
 const int num_one = 1;
 const bool little_endian = (*(char *)&num_one) == 1;
 
@@ -145,8 +142,6 @@ static bool read_RIFF(std::ifstream &is, pcm_data &audio)
 						}
 						else if (chunck == "fact")
 						{
-							// doit être de taille 4
-							// dwSampleLength 	4 	Number of samples (per channel)
 							// std::cout << "read fact" << std::endl;
 							if (!is.read(reinterpret_cast<char *>(&audio.fmt.dwSampleLength), sizeof audio.fmt.dwSampleLength))
 								break;
@@ -155,7 +150,6 @@ static bool read_RIFF(std::ifstream &is, pcm_data &audio)
 						}
 						else if (chunck == "data")
 						{
-							// read data
 							audio.data.assign(chunck_size, 0);
 							if (!is.read(&audio.data[0], chunck_size))
 								err = true;
@@ -265,12 +259,12 @@ bool load_wave(const std::string &file, pcm_data &audio)
 
 std::ostream &operator<<(std::ostream &out, const WAVE_FORMAT &f)
 {
-	return out << (f == WAVE_FORMAT::WAVE_FORMAT_PCM		  ? "WAVE_FORMAT_PCM"
-				   : f == WAVE_FORMAT::WAVE_FORMAT_IEEE_FLOAT ? "WAVE_FORMAT_IEEE_FLOAT"
-				   : f == WAVE_FORMAT::WAVE_FORMAT_ALAW		  ? "WAVE_FORMAT_ALAW"
-				   : f == WAVE_FORMAT::WAVE_FORMAT_MULAW	  ? "WAVE_FORMAT_MULAW"
-				   : f == WAVE_FORMAT::WAVE_FORMAT_EXTENSIBLE ? "WAVE_FORMAT_EXTENSIBLE"
-															  : "WAVE_FORMAT_UNKNOW");
+	return out << (f == WAVE_FORMAT::WAVE_FORMAT_PCM        ? "WAVE_FORMAT_PCM"  
+				 : f == WAVE_FORMAT::WAVE_FORMAT_IEEE_FLOAT ? "WAVE_FORMAT_IEEE_FLOAT" 
+				 : f == WAVE_FORMAT::WAVE_FORMAT_ALAW       ? "WAVE_FORMAT_ALAW" 
+                 : f == WAVE_FORMAT::WAVE_FORMAT_MULAW		? "WAVE_FORMAT_MULAW" 
+			     : f == WAVE_FORMAT::WAVE_FORMAT_EXTENSIBLE	? "WAVE_FORMAT_EXTENSIBLE" 
+								                            : "WAVE_FORMAT_UNKNOW");
 }
 
 WAVE_FORMAT get_wave_format(unsigned int code)
@@ -332,5 +326,9 @@ int16_t MuLaw_Decode(int8_t number)
 	// FJ : add << 3 (volume too low) (13-bit magnitude data)
 	return ((sign == 0) ? (decoded) : (-(decoded))) << 3;
 }
+}
+}
 
-} // namespace majimix::wave
+
+
+

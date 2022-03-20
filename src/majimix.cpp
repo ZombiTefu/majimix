@@ -6,48 +6,29 @@
  * This file contains the implementation of the Majimix mixer for the PortAudio library.
  *
  * @author  François Jacobs
- * @date 13/02/2022
- * @version 
+ * @date 07/03/2022
  *
- * @section majimix_lic_cpp LICENSE
+ * @section majimix_lic_hpp LICENSE
  *
  * The MIT License (MIT)
- * 
- * Copyright © 2022  - François Jacobs
- * Permission is hereby granted, free of charge, to any person obtaining a copy 
+ *
+ * Copyright © 2022 - François Jacobs
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the “Software”), to deal
  * in the Software without restriction, including without limitation the rights
- * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell 
- * copies of the Software, and to permit persons to whom the Software is 
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A 
+ * INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
  * PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
  * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE 
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
- */
-
-
-/*
- * Source 1- |
- *           | Sample 1 (pcm format S1) / resample (pcm format out)  ---|
- *           |															|                                                     [buffers]
- *           | Sample 2 (pcm format S1) / resample (pcm format out)  ---|                                                       | 1 |
- *           															| ---| Majimix / BufferedMixer (thread) ----(write)---->| 2 |               Audio callback ...
- * Source 2- |															|                                                       | 3 | ---> (read)--- PCM (format out)
- *           | Sample 3 (pcm format S2) / resample (pcm format out)  ---|                                                       | ...
- *
- * 3 threads :
- *   - le thread dans lequel on manipule majimix
- *   - le thread BufferedMixer qui bufferise le decodage des samples audio
- *   - le thread de lecture audio (callback portaudio ou autre)
- *
  */
 
 
@@ -64,20 +45,11 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
-
-// #ifdef __linux__ 
-// 	#include <pthread.h>
-// 	#include <sched.h>
-// #elif _WIN32
-//     // FIXME 
-// #endif
-
-
 #include "kss.hpp"
 
 
 namespace majimix {
-namespace pa {
+
 
 /*
  * For fixed-point calculation
@@ -90,17 +62,12 @@ constexpr uint_fast64_t FP_SHIFT = 16;
  */
 constexpr uint_fast64_t FP_MASK = ((uint_fast64_t)1 << FP_SHIFT) - 1;
 
+/* ---------- decoders i16 ---------- */
 
-
-/* ---------- decoders i16 ----------
- * (probably automaticaly inlined by compiler)
- */
-
-int ui8_to_i16(const char* data)
+static int ui8_to_i16(const char *data)
 {
-	return ((unsigned char) *data  << 8) - 0x8000;
+	return ((unsigned char)*data << 8) - 0x8000;
 }
-
 
 /*
  * int in_to_i16_le(const char*)
@@ -112,10 +79,10 @@ int ui8_to_i16(const char* data)
  * data Audio data (little-endian)
  * return the converted signed i16 value
  */
-template<int N>
-int in_to_i16_le(const char *data)
+template <int N>
+static int in_to_i16_le(const char *data)
 {
-	return static_cast<unsigned char>(data[N -2]) | (data[N -1] << 8);
+	return static_cast<unsigned char>(data[N - 2]) | (data[N - 1] << 8);
 }
 
 /*
@@ -124,11 +91,10 @@ int in_to_i16_le(const char *data)
  * data Audio data
  * return the converted signed i16 value
  */
-int alaw(const char * data)
+static int alaw(const char *data)
 {
 	return wave::ALaw_Decode(*data);
 }
-
 
 /*
  * int ulaw(const char*)
@@ -136,7 +102,7 @@ int alaw(const char * data)
  * data Audio data
  * return the converted signed i16 value
  */
-int ulaw(const char * data)
+static int ulaw(const char *data)
 {
 	return wave::MuLaw_Decode(*data);
 }
@@ -150,30 +116,29 @@ int ulaw(const char * data)
  * data Audio data
  * return the converted signed i16 value
  *
- * FIXME : take care of endianness
+ * FIXME : endianness
  */
-template<typename FLOAT_TYPE>
-int float_to_i16(const char * data)
+template <typename FLOAT_TYPE>
+static int float_to_i16(const char *data)
 {
-	FLOAT_TYPE v = *reinterpret_cast<const FLOAT_TYPE*>(data);
-	return v *0x7FFF;
+	FLOAT_TYPE v = *reinterpret_cast<const FLOAT_TYPE *>(data);
+	return v * 0x7FFF;
 }
 
+/* ---------- decoders i24 ---------- */
 
-/* ---------- decoders i24 ----------
- */
-
-/**
+/*
  * int ui8_to_i24(const char*)
  * Unsigned i8 to signed i24 decoder
  * data Audio data
  * return the converted signed i24 value
  */
-int ui8_to_i24(const char* data) {
-	return ((unsigned char) *data  << 16) - 0x800000;
+static int ui8_to_i24(const char *data)
+{
+	return ((unsigned char)*data << 16) - 0x800000;
 }
 
-/**
+/*
  * int in_to_i24_le(const char*)
  * Little-endian  int (unsigned i8 and signed i16, i24 or i32) to signed i24 decoder
  *         N data audio integer size
@@ -184,10 +149,10 @@ int ui8_to_i24(const char* data) {
  * data Audio data (little-endian)
  * return the converted signed i24 value
  */
-template<int N>
-int in_to_i24_le(const char *data)
+template <int N>
+static int in_to_i24_le(const char *data)
 {
-	return static_cast<unsigned char>(data[N -3]) | static_cast<unsigned char>(data[N -2]) << 8  | (data[N -1] << 16);
+	return static_cast<unsigned char>(data[N - 3]) | static_cast<unsigned char>(data[N - 2]) << 8 | (data[N - 1] << 16);
 }
 
 /*
@@ -196,13 +161,13 @@ int in_to_i24_le(const char *data)
  * data Audio data (little-endian)
  * return the converted signed i24 value
  */
-template<>
+template <>
 int in_to_i24_le<2>(const char *data)
 {
-	return static_cast<unsigned char>(data[0]) << 8  | (data[1] << 16);
+	return static_cast<unsigned char>(data[0]) << 8 | (data[1] << 16);
 }
 
-/**
+/*
  * @fn int in_to_i24_le<1>(const char*)
  * @brief Unsigned i8 to signed i24 decoder
  *        Specialization for uint8 - 8bits pcm format is supposed to be unsigned
@@ -210,35 +175,35 @@ int in_to_i24_le<2>(const char *data)
  * @param data Audio data
  * @return The converted signed i24 value
  */
-template<>
+template <>
 int in_to_i24_le<1>(const char *data)
 {
-	return ((unsigned char) *data  << 16) - 0x800000;
+	return ((unsigned char)*data << 16) - 0x800000;
 }
 
-/**
+/*
  * @fn int alaw_i24(const char*)
  * @brief a-law to signed i24 decoder
  * @param data Audio data
  * @return The converted signed i24 value
  */
-int alaw_i24(const char * data)
+static int alaw_i24(const char *data)
 {
 	return majimix::wave::ALaw_Decode(*data) << 8;
 }
 
-/**
+/*
  * @fn int ulaw_i24(const char*)
  * @brief μ-law to signed i24 decoder
  * @param data Audio data
  * @return The converted signed i24 value
  */
-int ulaw_i24(const char * data)
+static int ulaw_i24(const char *data)
 {
 	return majimix::wave::MuLaw_Decode(*data) << 8;
 }
 
-/**
+/*
  * @fn int float_to_i24(const char*)
  * @brief IEEE float to signed i24 decoder
  * @tparam FLOAT_TYPE data audio float type
@@ -247,16 +212,15 @@ int ulaw_i24(const char * data)
  * @param data Audio data
  * @return The converted signed i24 value
  *
- * FIXME : take care of endianness
+ * FIXME : endianness
  */
-template<typename FLOAT_TYPE>
-int float_to_i24(const char * data)
+template <typename FLOAT_TYPE>
+static int float_to_i24(const char *data)
 {
-	//FLOAT_TYPE v = *std::launder(reinterpret_cast<const FLOAT_TYPE*>(data));
-	FLOAT_TYPE v = *(reinterpret_cast<const FLOAT_TYPE*>(data));
-	return v *0x7FFFFF;
+	// FLOAT_TYPE v = *std::launder(reinterpret_cast<const FLOAT_TYPE*>(data));
+	FLOAT_TYPE v = *(reinterpret_cast<const FLOAT_TYPE *>(data));
+	return v * 0x7FFFFF;
 }
-
 
 /**
  * @brief Samples audio format
@@ -264,31 +228,35 @@ int float_to_i24(const char * data)
  * Accepted WAVE audio format
  *
  */
-enum class AuFormat {
-	none,        /**< none */
-	uint_8bits,  /**< uint_8bits unsigned i8 format */
-	int_16bits,  /**< int_16bits signed i12 or i16 formats */
-	int_24bits,  /**< int_24bits signed i24 format */
-	int_32bits,  /**< int_32bits signed i32 format */
-	float_32bits,/**< float_32bits IEEE float 32 bits format */
-	float_64bits,/**< float_64bits IEEE float 64 bits format */
-	alaw,        /**< alaw a-law format */
-	ulaw         /**< ulaw µ-law format */
+enum class AuFormat
+{
+	none,		  /**< none */
+	uint_8bits,	  /**< uint_8bits unsigned i8 format */
+	int_16bits,	  /**< int_16bits signed i12 or i16 formats */
+	int_24bits,	  /**< int_24bits signed i24 format */
+	int_32bits,	  /**< int_32bits signed i32 format */
+	float_32bits, /**< float_32bits IEEE float 32 bits format */
+	float_64bits, /**< float_64bits IEEE float 64 bits format */
+	alaw,		  /**< alaw a-law format */
+	ulaw		  /**< ulaw µ-law format */
 };
 
 
+/* ------------ source & sample interfaces --------------- */
+
+class Sample;
+
 /**
  * @class Source
- * @brief A Source is an abstract class capable of creating Samples.
- *        Samples are themselves abstract objects providing the sound data to the Majimix mixer.
+ * @brief A Source is an interface that supports the creation of Sample objects
+ *        
  */
-class Sample;
-class Source {
-public :
+class Source
+{
+public:
 	virtual ~Source() = default;
 
 	/**
-	 * @fn void set_output_format(int, int=2, int=16)=0
 	 * @brief Set the output format for the Sample::read method.
 	 *        This is the format of the mixer.
 	 * @param samples_per_sec rate (samples per second)
@@ -298,27 +266,26 @@ public :
 	virtual void set_output_format(int samples_per_sec, int channels = 2, int bits = 16) = 0;
 
 	/**
-	 * @fn std::unique_ptr<Sample> create_sample()=0
 	 * @brief Create a new Sample from this Source.
 	 * @return
 	 */
 	virtual std::unique_ptr<Sample> create_sample() = 0;
 };
 
-
 /**
  * @class Sample
  * @brief Sample provides the sound data to the Majimix mixer.
  *
  */
-class Sample {
+class Sample
+{
 public:
 	virtual ~Sample() = default;
 	/**
 	 * Read the sample_count samples of this Sample and place the result into the buffer.
 	 * Returns the number of samples read. If this number is less than sample_count,
 	 * it means that the Sample has reached the end.
-	 * <TR:When a Sample reach the end, it will rewind automaticaly, the mixer can call Sample::read again to get data>
+	 * When a Sample reach the end, it will rewind automaticaly, the mixer can call Sample::read again to get data
 	 *
 	 * The size of a sample is equal to : number of channels. So the number of int elements
 	 * returned in out_buffer is equal to the number of channel x sample_count returned.
@@ -329,7 +296,7 @@ public:
 	 * @return the number of sample processed (must be <= sample_count)
 	 *          (buffer will be filled with this returned value x nb_channels elements)
 	 */
-	virtual int read(int* buffer, int sample_count) = 0;
+	virtual int read(int *buffer, int sample_count) = 0;
 
 	/**
 	 * @fn void seek(int)=0
@@ -351,8 +318,7 @@ public:
 
 
 
-
-/* ---------- SourcePCM and SamplePCM definition ----------
+/* ---------- SourcePCM & SamplePCM implementation ----------
  * PCM data is loaded from wave files and stored in memory
  */
 
@@ -415,12 +381,12 @@ class SourcePCM : public Source {
 
 	/**
 	 * @fn int read(int*, int, int&, uint_fast64_t&)
-	 * @brief
+	 * @brief Read, decode the source, converts to the mixer format and fill the mixer output buffer
 	 *
 	 * @tparam STEREO_INPUT
 	 * @tparam STEREO_OUTPUT
-	 * @param out_buffer
-	 * @param sample_count
+	 * @param out_buffer mixer output buffer
+	 * @param sample_count number of output samples to process (buffer must be filled with sample_count x nb_mixer_channels elements)
 	 * @param sample_idx
 	 * @param sample_frac
 	 * @return
@@ -432,6 +398,8 @@ class SourcePCM : public Source {
 
 public:
 	void set_output_format(int samples_per_sec, int channels = 2, int bits = 16) override;
+	
+	/* create a SamplePCM associated with this Source */
 	std::unique_ptr<Sample> create_sample() override;
 };
 
@@ -515,7 +483,7 @@ bool load_wave(const std::string &filename, SourcePCM &source)
 		std::cout << "bits per sample (one channel) " << fmt.wBitsPerSample << "\n";
 		std::cout << "bytes for one sample and all channels " << fmt.nBlockAlign << "\n";
 
-		// revoir ce check : cas des 12bits qui sont en principe alignés sur 16bits (et traité comme 16 bits)
+		// review this check: case of 12bits which are in principle aligned on 16bits (and treated as 16 bits)
 		std::cout << "format " << wformat << (format_ex ? " (EX)": "")<< " bps " << fmt.wBitsPerSample << " bits, " << fmt.nChannels << " channel(s) : nAvgBytesPerSec " << fmt.nAvgBytesPerSec<< " : nBlockAlign " << fmt.nBlockAlign << std::endl;
 		if(fmt.nAvgBytesPerSec != (fmt.nChannels * (fmt.wBitsPerSample>>3)) * fmt.nSamplesPerSec)
 		{
@@ -523,7 +491,7 @@ bool load_wave(const std::string &filename, SourcePCM &source)
 		}
 		if(fmt.nBlockAlign * 8 != fmt.wBitsPerSample * fmt.nChannels)
 		{
-			std::cerr << "format " << wformat << " bps " << fmt.wBitsPerSample <<" bits, " << fmt.nChannels << " channel(s)" << " : nBlockAlign " << fmt.nBlockAlign << " on devrait avoir nBlockAlign * 8 ("<< (fmt.nBlockAlign * 8) <<")= wBitsPerSample * nChannels (" << (fmt.wBitsPerSample * fmt.nChannels) << ")"<< std::endl;
+			std::cerr << "format " << wformat << " bps " << fmt.wBitsPerSample <<" bits, " << fmt.nChannels << " channel(s)" << " : nBlockAlign " << fmt.nBlockAlign << " => nBlockAlign * 8 ("<< (fmt.nBlockAlign * 8) <<")= wBitsPerSample * nChannels (" << (fmt.wBitsPerSample * fmt.nChannels) << ")"<< std::endl;
 		}
 #endif
 
@@ -542,7 +510,7 @@ bool load_wave(const std::string &filename, SourcePCM &source)
 			case 8 :
 				source.format = AuFormat::uint_8bits;
 				break;
-			case 12 : // 12 bits incomplet cas 12 bits - premier byte (less significant) les 4 premiers bits sont à 0 => il faut charger int16 puis (>>4)
+			case 12 : // ??? : 12 bits - first byte (less significant) the first 4 bits are 0 => we have to load int16 then (>>4)
 			case 16 :
 				source.format = AuFormat::int_16bits;
 				break;
@@ -554,7 +522,7 @@ bool load_wave(const std::string &filename, SourcePCM &source)
 				break;
 			default:
 #ifdef DEBUG
-				std::cerr << "format WAVE_FORMAT_PCM avec wBitsPerSample = " << fmt.wBitsPerSample << " non implémenté" << std::endl;
+				std::cerr << "format WAVE_FORMAT_PCM avec wBitsPerSample = " << fmt.wBitsPerSample << " not implemented" << std::endl;
 #endif
 				break;
 			}
@@ -571,7 +539,7 @@ bool load_wave(const std::string &filename, SourcePCM &source)
 				break;
 			default:
 #ifdef DEBUG
-				std::cerr << "Format WAVE_FORMAT_IEEE_FLOAT "<< fmt.wBitsPerSample << " bits non pris en compte" << std::endl;
+				std::cerr << "Format WAVE_FORMAT_IEEE_FLOAT "<< fmt.wBitsPerSample << " bits not supported" << std::endl;
 #endif
 				break;
 			}
@@ -682,7 +650,6 @@ void SourcePCM::configure()
 		}
 		ready = true;
 	}
-
 }
 
 void SourcePCM::set_output_format(int samples_per_sec, int channels, int bits)
@@ -694,7 +661,6 @@ void SourcePCM::set_output_format(int samples_per_sec, int channels, int bits)
 	configure();
 }
 
-/* create a SamplePCM associated with this Source */
 std::unique_ptr<Sample> SourcePCM::create_sample()
 {
 	if(ready)
@@ -702,16 +668,6 @@ std::unique_ptr<Sample> SourcePCM::create_sample()
 	return nullptr;
 }
 
-/*
- * Read, decode the source, converts to the mixer format and
- * fill the mixer output buffer
- *
- * out_buffer : mixer output buffer
- * sample_count number of output samples to process
- *              (buffer must be filled with sample_count x nb_mixer_channels elements)
- *
- * return the number mixer sample processed
- */
 template<bool STEREO_INPUT, bool STEREO_OUTPUT>
 int SourcePCM::read(int* out_buffer, int sample_count, int &sample_idx, uint_fast64_t &sample_frac)
 {
@@ -867,7 +823,6 @@ void SamplePCM::seek_time(double pos)
 		sample_idx = source->sample_rate * pos;
 }
 
-/* duration in seconds */
 double SamplePCM::sample_time() const
 {
 	return  source && source->sample_rate ? static_cast<double>(source->size) / source->sample_rate : 0.;
@@ -875,12 +830,15 @@ double SamplePCM::sample_time() const
 
 
 
+
+
+
 /* ---------- VORBIS ----------
- *
+ 
  */
 
 
-/* Vorbis File Callbacks */
+// Vorbis File Callbacks
 
 static size_t ogg_read(void* buffer, size_t elementSize, size_t elementCount, void* dataSource) {
     assert(elementSize == 1);
@@ -917,8 +875,7 @@ class SourceVorbis : public Source {
 	std::string filename;
 
 	/* sample decoder */
-	std::function<int(char*)> decoder; // force 16bits ->  in_to_i16_le<2> : in_to_i24_le<2>;
-	/* mixer format - 16 bits fixed*/
+	std::function<int(char*)> decoder; 
 	int mixer_rate;
 	int mixer_bits;    // 16/24
 	int mixer_channels;
@@ -927,12 +884,14 @@ class SourceVorbis : public Source {
 
 	//void configure();
 	//friend bool set_vorbis_file(const std::string &filename, SourceVorbis &source);
-	friend class SampleVorbis; // si on veut conserver read private
+	friend class SampleVorbis; 
 
 
 public:
 	void set_file(const std::string& filename);
+	/* set the mixer format */
 	void set_output_format(int samples_per_sec, int channels = 2, int bits = 16) override;
+	/* create a SampleVorbis associated with this Source */
 	std::unique_ptr<Sample> create_sample() override;
 };
 
@@ -965,6 +924,7 @@ class SampleVorbis : public Sample {
 	char internal_buffer[internal_buffer_size];
 	int buffer_read_length = 0;
 
+	/* verifies and completes source initialization */
 	void configure();
 
 public:
@@ -986,7 +946,6 @@ void SourceVorbis::set_file(const std::string& filename)
 	this->filename = filename;
 }
 
-/* set the mixer format */
 void SourceVorbis::set_output_format(int samples_per_sec, int channels, int bits)
 {
 	mixer_rate = samples_per_sec;
@@ -995,12 +954,10 @@ void SourceVorbis::set_output_format(int samples_per_sec, int channels, int bits
 	decoder = bits == 16 ? in_to_i16_le<2> : in_to_i24_le<2>;
 }
 
-/* create a SamplePCM associated with this Source */
 std::unique_ptr<Sample> SourceVorbis::create_sample()
 {
 	return std::make_unique<SampleVorbis>(*this);
 }
-
 
 SampleVorbis::SampleVorbis(const SourceVorbis &s)
 : source {&s},
@@ -1040,8 +997,7 @@ SampleVorbis::SampleVorbis(const SourceVorbis &s)
 
 		for(int i=0 ; i < ov_streams(&file); i++)
 		{
-			// XXX gerer un tableau de rate !
-			//     en cas de multistream - rate et channels peuvent changer
+			//     if multistream - rate and channels can change
 			vorbis_info *vi = ov_info(&file,i);
 			std::cout <<"\tlogical bitstream section " << (i+1) <<" information:\n";
 			std::cout << "\t\t"<<vi->rate<<"Hz "<< vi->channels << " channels bitrate " << (ov_bitrate(&file,i)/1000) << "kbps serial number=" << ov_serialnumber(&file,i) <<"\n";
@@ -1060,7 +1016,6 @@ SampleVorbis::~SampleVorbis()
 	ov_clear(&file);
 }
 
-/* verifies and completes source initialization */
 void SampleVorbis::configure()
 {
 	initialized = false;
@@ -1099,30 +1054,26 @@ int SampleVorbis::read(int* buffer, int sample_count)
 
 	while(!done)
 	{
-		// test de chargement du buffer
+		// buffer loading test
 		if(idx_lim >= buffer_read_length)
 		{
 			if(idx_1 >= buffer_read_length)
 			{
-				// cas 1 : aucune donnée utilisable dans le buffer courant
+				// 1 : no usable data in the current buffer
 				idx_1   -= buffer_read_length;
 				buffer_read_length = ov_read(&file, internal_buffer, internal_buffer_size, 0, 2, 1, &current_section);
-//				std::cerr << "read 1 " << buffer_read_length << " id1 : " <<  idx_1 << "\n";
 			}
 			else
 			{
-				// cas 2 : les données sont partiellement présentes dans le buffer
-				//         on s'arrange pour reprendre la totalité à partir de idx_1
-
-				// quatité de donnée à reprendre (à preserver)
+				// cas 2 : data are partially present in the buffer
+				// data to take over (to preserve)
 				int preserve_length = buffer_read_length - idx_1;
 				std::copy(internal_buffer + idx_1, internal_buffer  + buffer_read_length, internal_buffer);
-				idx_1    = 0;     // par definition
+				idx_1    = 0;     
 
-				// lecture du buffer
+				// read the buffer
 				buffer_read_length = ov_read(&file, internal_buffer + preserve_length, internal_buffer_size - preserve_length, 0, 2, 1, &current_section);
 				buffer_read_length += preserve_length;
-//				std::cerr << "read 2 " << buffer_read_length << " id1 : " <<  idx_1 << "\n";
 			}
 			if(current_section != last_section)
 			{
@@ -1131,7 +1082,6 @@ int SampleVorbis::read(int* buffer, int sample_count)
 			}
 			idx_2 = idx_1 + sample_size;
 			idx_lim = idx_2 + sample_size;
-			// std::cerr << " id2 : " <<  idx_2 << " idl "<< idx_lim<< "\n";
 		}
 
 		if(buffer_read_length > 0)
@@ -1153,10 +1103,10 @@ int SampleVorbis::read(int* buffer, int sample_count)
 			}
 			else
 			{
-				// on suppose sortie stereo : je ne gère pas (pas encore le sourround, 5.1, 7.1)
+				// we assume a stereo output : surround, 5.1, 7.1  - not supported (yet)
 				if(channels > 1)
 				{
-					// on suppose stereo => stereo
+					// stereo => stereo
 					int vl_1 = source->decoder(internal_buffer + idx_1 );
 					int vr_1 = source->decoder(internal_buffer + idx_1 + channel_size);
 					int vl_2 = source->decoder(internal_buffer + idx_2 );
@@ -1217,63 +1167,11 @@ void SampleVorbis::seek_time(double pos)
 	idx_1 = 0;
 	ov_time_seek(&file, pos);
 }
-// taille totale en nombre de sample (1 sample = nb octets * nb channels)
-//long SampleVorbis::sample_size()
-//{
-//	return ov_pcm_total(&file,-1);
-//}
-// duree en seconde
+
 double SampleVorbis::sample_time()
 {
 	return ov_time_total(&file,-1);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-/**
- * @class MixerChannel
- * @brief
- *
- */
-class MixerChannel {
-	/* NOTE : active est placé à true lors d'un demarrage d'un source et c'est le thread PA qui le mettra à false à la fin du sample ou si stopped */
-	std::atomic<bool> active;
-	std::atomic<bool> stopped;
-	std::atomic<bool> paused;
-	std::atomic<bool> loop;
-
-	std::unique_ptr<Sample> sample;
-	int sid; // FIXME atomic ! (cf stop_playback)
-	friend class MajimixPa;
-
-public:
-	MixerChannel();
-
-};
-
-
-
-MixerChannel::MixerChannel()
-: active  {false},
-//  started  {false}
-  stopped {true},
-  paused  {false},
-  loop    {false},
-  sample  {nullptr},
-  sid {0}
-
-{}
-
 
 
 /* --------------------------------------------------------------------------- */
@@ -1281,69 +1179,39 @@ MixerChannel::MixerChannel()
 
 
 /*  ---------- BufferedMixer ----------
- *  permet d'exploiter un thread (indépendant de PA) dédié
- *  au mixage : récupération des données des samples et fusion dans un buffer interne
- *  La méthode de mixage foit être implémentée ailleurs, BufferedMixer se contente
- *  de fournir un buffer en écriture pour stocker ces données (il va réclamer n samples)
+ * 
+ * Allows to use a thread (independent from PA) dedicated to
+ * to mixing: retrieving data from samples and merging it into an internal buffer
+ * The mixing method has to be implemented elsewhere, BufferedMixer just
+ * to provide a write buffer to store these data (it will claim n samples)
  *
- *  PA peut acceder aux données audio mixée sans blocage via la méthode read
- *
- *
+ * PA can access the mixed audio data without blocking through the read method
  */
 
-
-/**
- *
- * Le mixer de majimix
- *
- * Interface entre majimix qui s'occupe du mixage des channels (voix) et (ici) Portaudio (mais cela pourrait être autre chose)
- *
- * Principe :
- * Lors du démarrage, le thread producer est activé
- *    il va réclamer à majimix une quantité de samples convertis au format de sortie (attendu par portaudio)
- *    et le stocker dans un buffer
- *
- *    passe au buffer suivant et recommence jqa tous les buffer pleins (il y a généralement 3 buffers - paramètre)
- *
- * Majimix a associé à la PaCallback la méthode read de BufferedMixer
- * read est sans blocage et va lire dans un buffer le nombre de sample réclamé (qui sont déjà au bon format)
- * et passe au buffer suivant si necessaire (ce qui permet au thread producer de réclamer la suite à majimix)
- * Si d'aventure aucun buffer n'est libre en lecture, read renvoie immédiatement une séquence à 0 - c'est un underrun -
- * port audio continue comme si de rien n'était mais le son est coupé
- * Si cela arrive c'est que le producer n'arrive pas à décoder suffisement rapidement il faut donc augmenter le nombre et/ou la taille des buffers
- *
- *
- */
 class BufferedMixer {
 	/** Buffer "packet" size (size in byte) */
-	const int buffer_packet_size;         // taille d'un buffer en octet
-	/** Buffer "packet" sample size (size in sample - /bits & channels) */
-	const int buffer_packet_sample_size;  // taille d'un buffer en sample (ex 24 bits stereo => buffer_packet_size / (3 * 2)
-	/** Size of one sample in byte (bits x channels) */
-	const int sample_size;                // taille en octet d'un sample (24bit stereo => 3x2=6)
+	const int buffer_packet_size;
+	/** Buffer "packet" sample size (size in sample) - ex :  24bits stereo =>  buffer_packet_size / (3 * 2) */
+	const int buffer_packet_sample_size;  
+	/** Size of one sample in byte (bits x channels) - ex  24bits stereo => 3x2=6 */
+	const int sample_size; 
 	/** Total buffer size in byte */
-	const int buffer_total_size;          // taille en octet (taille des buffers)
+	const int buffer_total_size;
 
 	/**
 	 * The buffer
 	 * Contains data read from sample.
 	 */
-	std::vector<char> buffer; // read and write simultaneously in a vector safe ?
+	std::vector<char> buffer; 
 
-	/*
-	 * Objects of atomic types are the only C++ objects that are free from data races; that is, if one thread writes to an atomic object while another thread reads from it, the behavior is well-defined.
-	 * Je comprends : si 1 thread modifie une variable et qu'un autre lit cette variable => il faut utiliser atomic (ou bien synchroniser l'accès : lock)
-	 * pourtant l'exemple https://en.cppreference.com/w/cpp/thread/condition_variable utilise 2 booléens avec condition_variable et sans atomic - ready et processed -(accès par 2 threads) => je m'interroge
-	 */
-	std::atomic<int> read_position;   // id frontiere du buffer, on pourrait remplacer par un numero de buffer
-	int read_inrange_index;    // index de lecture au sein du buffer [0, buffer_packet_size]
+	std::atomic<int> read_position;  
+	int read_inrange_index;           // read index within the buffer [0, buffer_packet_size]
 	std::atomic<int> write_position;
 	std::atomic<bool> producer_on;
 	std::atomic<bool> paused;
 
 	/** producer thread : read data from the sample and fill the buffer */
 	std::thread producer;
-	/** mutex and condition_variable used to pause producer thread */
 	std::mutex m;
 	std::condition_variable cv;
 
@@ -1358,7 +1226,7 @@ class BufferedMixer {
 public:
 	/**
 	 * Constructor
-	 * @param buffer_count the number of buffer to use - 3 should be great
+	 * @param buffer_count the number of buffer to use - 5 should be great
 	 * @param buffer_sample_size Sample capacity of one buffer
 	 * @param sample_size        Size in byte of one sample (ex: 24 bits stereo => 3 x 2 = 6)
 	 */
@@ -1393,17 +1261,12 @@ public:
 	 *  start the producer thread
 	 */
 	void start();
+
 	/**
 	 * pause / resume the producer thread - wait before return
 	 * @param pause
 	 */
 	void pause(bool pause);
-
-// risqué : si on a joute ca, le flag paused ne suffit plus pour savoir si on peut modifier les channels
-//	        il faut ajouter un autre flag producer_paused et le tester pour savoir s'il est en pause
-//          pas utile pour le moment donc je laisse
-//	/* pause / resume the producer thread - doesn't wait and return immediatly the producer thread will pause/resum as soon as possible */
-//	void pause_request(bool pause);
 
 	/**
 	 * stop the producer thread
@@ -1488,7 +1351,7 @@ int BufferedMixer::get_buffer_packet_sample_size() const
 
 void BufferedMixer::set_mixer_function(fn_mix fn)
 {
-	// la fonction mix peut être mise à jour si le producer est à l'arrêt ou en pause
+	// the mix function can be updated if the producer is stopped or paused
 	if(!is_active())
 		mix = fn;
 }
@@ -1507,47 +1370,6 @@ void BufferedMixer::start()
 		read_inrange_index = 0;
 		producer_on = true;
 		producer = std::thread(&BufferedMixer::write, this);
-
-// #ifdef __linux__
-// //		int rt_pf = SCHED_FIFO;
-// //		int rt_pr = SCHED_RR;
-// 		std::cout << "********** TRHEAD PRIORITY **********\n";
-// 		std::cout << "SCHED_FIFO\n";
-// 		std::cout << "MIN : " << sched_get_priority_min(SCHED_FIFO)<<"\n";
-// 		std::cout << "MAX : " << sched_get_priority_max(SCHED_FIFO)<<"\n";
-// 		std::cout << "------------------------------------\n";
-// 		std::cout << "SCHED_RR\n";
-// 		std::cout << "MIN : " << sched_get_priority_min(SCHED_RR)<<"\n";
-// 		std::cout << "MAX : " << sched_get_priority_max(SCHED_RR)<<"\n";
-// 		std::cout << "*************************************\n";
-
-//         // be careful ! it is just a test
-// 		// we have to verify min max priorites values to get range and chose a good priority value
-// 		// phange thread priority
-		
-// 		// necessite des privilèges et avec un sudo l'appli fonctionne mal
-// 		// 
-// 		// sched_param schp {25};
-// 		// // schp.sched_priority = 25;
-// 	    // if (pthread_setschedparam(producer.native_handle(), SCHED_FIFO, &schp)) 
-// 		// {
-//         // 	std::cout << "Failed to setschedparam: " << std::strerror(errno) << '\n';
-//     	// }
-
-// 		// pthread_setschedparam(producer.native_handle(), &pol, &schp);
-
-// 		sched_param sch;
-//     	int policy; 
-//     	pthread_getschedparam(producer.native_handle(), &policy, &sch);
-//     	std::cout << "Thread producer scheduling policy is " << policy << '\n';
-// 		std::cout << "Thread producer is executing at priority " << sch.sched_priority << '\n';
-
-
-
-// #elif _WIN32
-
-// #endif
-
 	}
 }
 
@@ -1593,23 +1415,23 @@ void BufferedMixer::write()
 	int next;
 	while(producer_on)
 	{
-		//lock de la section critique car le thread principal pourrait demander une pause et intervenir sur les samples
+		// lock of the critical section 
 		std::unique_lock<std::mutex> lkp(m);
 
 #ifdef PRODUCERDEBUG
-		std::cout << "BufferedMixer::write producer écrit dans write_position "<< write_position << "\n";
+		std::cout << "BufferedMixer::write producer writes in write_position "<< write_position << "\n";
 #endif
-		// mixage des samples et conversion en données audio
+		// sample mixing and audio data conversion
 		mix( buffer.begin() + write_position, buffer_packet_sample_size);
 
-		// release du lock : le thread principal peut faire une pause intervenir sur les samples
+		// release lock
 		m.unlock();
 
-		// calcul de la position d'écriture suivante
+		// Compute the next writing position
 		next = (write_position + buffer_packet_size) % buffer_total_size;
 
-		// verification de la nouvelle position d'écriture et d'une éventuelle pause
-		// on utilise un while à cause des spurious wakeup
+		// check the new writing position and a possible pause
+		// we use a while because of spurious wakeup
 		while((next == read_position || paused) && producer_on)
 		{
 #ifdef PRODUCERDEBUG
@@ -1617,20 +1439,18 @@ void BufferedMixer::write()
 				std::cout << "BufferedMixer::write paused in write_position "<< write_position << "\n";
 			else
 				// wait for reader
-				std::cout << "BufferedMixer::write producer attend le reader pour écrire dans write_position "<< next << "\n";
+				std::cout << "BufferedMixer::write producer waiting for reader to write in write_position "<< next << "\n";
 #endif
-			// on attend que les conditions soient ok pour passer : write possible si pas de read et pas de pause
-			// pour mémoire le condition_variable.wait unlock la mutex pendant l'attente et relock tout de suite aorès
 			std::unique_lock<std::mutex> lk(m); 			// lock
-			cv.wait(lk, [&] {return (next != read_position && !paused) || !producer_on ;});  // unlock/wait -> lock after wait (il faut un notify du reader pour passer)
-			// unlock - pas necessaire et pas certain que cela soit judicieux
-			m.unlock();
+			cv.wait(lk, [&] {return (next != read_position && !paused) || !producer_on ;});  // unlock/wait -> lock after wait 
+			// unlock 
+			// m.unlock();
 		}
 
-		// on passe au range suivant
+		// next range
 		write_position = next;
 #ifdef PRODUCERDEBUG
-		std::cout << "BufferedMixer::write producer passage au suivant write_position "<< write_position << "\n";
+		std::cout << "BufferedMixer::write producer next write_position "<< write_position << "\n";
 #endif
 	}
 
@@ -1639,10 +1459,6 @@ void BufferedMixer::write()
 #endif
 }
 
-
-/*
- * Read va systématiquement délivrer requested_sample_count dans out_buffer
- */
 void BufferedMixer::read(char* out_buffer, int requested_sample_count)
 {
 #ifdef CONSUMERDEBUG
@@ -1652,10 +1468,10 @@ void BufferedMixer::read(char* out_buffer, int requested_sample_count)
 	int remaining_out_count = requested_sample_count * sample_size;
 	do
 	{
-		// test si le buffer est libre en lecture
+		// test if the buffer is free for reading
 		if(write_position == read_position)
 		{
-			// occupé => on va quand même renseigner out_buffer avec des 0
+			// busy => we will still fill out_buffer with 0
 #ifdef CONSUMERDEBUG
 			if(producer_on)
 				std::cout << "BufferedMixer::read underrun - can't wait for producer need to read read_position " << read_position << "\n";
@@ -1671,17 +1487,16 @@ void BufferedMixer::read(char* out_buffer, int requested_sample_count)
 			return;
 		}
 
-		// nombre de byte restant dans ce buffer
+		// number of bytes remaining in this buffer
 		int remaining_range_count = buffer_packet_size - read_inrange_index;
-		// nombre de byte que l'on va recuperer
+		// number of bytes that we will recover
 		int take_range_count = std::min(remaining_range_count, remaining_out_count);
-		// position (en byte) dans le buffer
+		// position (bytes) in buffer
 		int cur_range_position = read_position + read_inrange_index;
 
-		// copy du buffer interne dans l'output
+		// copy from internal buffer to output
 		std::copy(buffer.begin() + cur_range_position, buffer.begin() + cur_range_position + take_range_count, out_buffer +  out_count);
 
-		// on comptabilise
 		out_count += take_range_count;
 		remaining_out_count   -= take_range_count;
 		remaining_range_count -= take_range_count;
@@ -1719,6 +1534,77 @@ static int get_handle(int source_id, int channel_id) { return ((channel_id & 0xF
 static int get_kss_source_id(int source_id) { return (source_id | 0x1000) & 0xFFFF; }
 static int get_source_type(int handle_or_source_id) { return (handle_or_source_id >> 12) & 0xF; }
 
+
+
+
+
+
+bool Majimix::start_mixer() 
+{
+	return start_stop_mixer(true);
+}
+
+bool Majimix::stop_mixer() 
+{
+	return start_stop_mixer(false);
+}
+
+bool Majimix::pause_mixer() 
+{
+	return pause_resume_mixer(true);
+}
+
+bool Majimix::resume_mixer() 
+{
+	return pause_resume_mixer(false);
+}
+
+void Majimix::pause_playback(int play_handle)
+{
+	pause_resume_playback(play_handle, true);
+}
+
+void Majimix::resume_playback(int play_handle)
+{
+	pause_resume_playback(play_handle, false);
+}
+
+
+namespace pa {
+
+/**
+ * @class MixerChannel
+ * @brief
+ *
+ */
+class MixerChannel {
+	std::atomic<bool> active;     // Set to true to activate the Channel. If PA thread is active, it is the only thread that can reset the value.
+	std::atomic<bool> stopped;
+	std::atomic<bool> paused;
+	std::atomic<bool> loop;
+
+	std::unique_ptr<Sample> sample;
+	int sid; // FIXME atomic ! (cf stop_playback)
+	friend class MajimixPa;
+
+public:
+	MixerChannel();
+
+};
+
+
+
+MixerChannel::MixerChannel()
+: active  {false},
+//  started  {false}
+  stopped {true},
+  paused  {false},
+  loop    {false},
+  sample  {nullptr},
+  sid {0}
+
+{}
+
 /**
  * @class MajimixPa
  * @brief PortAudio implementation of Majimix.
@@ -1747,7 +1633,14 @@ class MajimixPa : public Majimix  {
 	std::vector<int> internal_sample_buffer;
 
 	/* audio converter */
-	template<int N>
+
+	/**
+	 * @tparam N     2 16 bits 3 24 bits
+	 * @param it_int mixed input buffer
+	 * @param it_out output buffer
+	 * @param sample_count number of samples to convert
+	 */
+	template <int N>
 	void encode_Nbits(std::vector<char>::iterator it_out);
 	using fn_encode = std::function<void(std::vector<char>::iterator it_out)>;
 	fn_encode encode;
@@ -1758,20 +1651,33 @@ class MajimixPa : public Majimix  {
 	/* PortAudio stream */
 	PaStream *m_stream {nullptr};
 
+    /* Creates PortAudio stream */
 	bool create_stream();
+
+	/* PA callback */
 	static int paCallback( const void *inputBuffer, void *outputBuffer,
 						   unsigned long framesPerBuffer,
 						   const PaStreamCallbackTimeInfo* timeInfo,
 						   PaStreamCallbackFlags statusFlags,
 						   void *userData );
-	// int paCallback2( const void *inputBuffer, void *outputBuffer,
-	// 					   unsigned long framesPerBuffer,
-	// 					   const PaStreamCallbackTimeInfo* timeInfo,
-	// 					   PaStreamCallbackFlags statusFlags,
-	// 					   void *userData );
-	bool set_playback(bool on) ;
+	// // int paCallback2( const void *inputBuffer, void *outputBuffer,
+	// // 					   unsigned long framesPerBuffer,
+	// // 					   const PaStreamCallbackTimeInfo* timeInfo,
+	// // 					   PaStreamCallbackFlags statusFlags,
+	// // 					   void *userData );
+	// bool set_playback(bool on) ;
 
 // //	bool kss_cartridge_action(int kss_source_handle, bool need_sync, std::function<void(kss::CartridgeKSS&)> fn_action);
+
+	/**
+	 * @brief Get a CartridgeKSS an a KSSLine from a kss handle
+	 *
+	 * @param kss_handle
+	 * @param need_line  True : Tell if the kss handle must represent a valid kss line. False : the kss handle must be a valid kss source (but can eventualy contains a line)
+	 * @param cartridge
+	 * @param line_id
+	 * @return
+	 */
 	bool get_cartrigde_and_line(int kss_handle, bool need_line, kss::CartridgeKSS *&cartridge, int &line_id);
 	// template<typename T>
 	// T kss_cartridge_action(int kss_source_handle, bool need_sync, T default_ret_val, std::function<T(kss::CartridgeKSS&)> fn_action);
@@ -1783,14 +1689,9 @@ class MajimixPa : public Majimix  {
 // 	T kss_cartridge_action_nosync(int kss_source_handle, bool need_line, T default_ret_val, std::function<T(kss::CartridgeKSS&, int line_id)> fn_action);
 
 
-	// pour emplacer toutes les autres
 	template<typename T>
 	T kss_cartridge_action(int kss_source_handle, bool need_sync, bool need_line, T default_ret_val, std::function<T(kss::CartridgeKSS&, int line_id)> fn_action);
 
-
-
-//	template<typename T>
-//	T kss_action(bool need_sync, std::function<T()> fn_action);
 
 
 public:
@@ -1802,67 +1703,53 @@ public:
 	bool pause_resume_mixer(bool pause) override;
 	int get_mixer_status() override;
 
-	[[deprecated]]
-	void stop() override;						// stops all : mixer, portaudio ...
-	[[deprecated]]
-	bool start() override;
-	[[deprecated]]
-	void pause(bool) override; 					// arrêt du playback mais laisse les channels (plus éco que de pauser toutes les channels)
-
 
 	/* obtain a source handle */
+
+	/**
+	 * @brief Add a source to the mixer (wave, ogg)
+	 * 
+	 * @param name the source filename
+	 * @return int the handle
+	 */
 	int add_source(const std::string& name) override;
+
+	/**
+	 * @brief Add a kss source to the mixer
+	 * 
+	 * @param name kss file
+	 * @param lines the number of lines (channels)
+	 * @param silent_limit_ms silent duration for autostop detection
+	 * @return int 
+	 */
 	int add_source_kss(const std::string &name, int lines, int silent_limit_ms) override;
+
+	/**
+	 * @brief Drop a source from the mixer. 
+	 *        Can be called at any time.
+	 * 
+	 * @param source_handle 
+	 * @return true the source has successfully been removed
+	 * @return false the source handle is not valid
+	 */
 	bool drop_source(int source_handle) override;
 
-	/* playing source */
-
-
-
-
-
-	// // NEW  pour simplifier l'utilisation de la bibliothèque
-	// //       Un unique stop  
-	// void stop(int handle);                          // stops all corresponding samples
-	// 												// if handle is a source handle : alls samples of this handle are stopped
-	// 												// if handle is a sample handle : the specific sample is stopped
-
-
-	void stop_source(int source_handle) override;   // stops all samples associated with this source handle
-	bool stop_kss(int kss_handle);                  // stops all kss samples associated with this source handle
-
 	void set_master_volume(int v) override;
-	/* return play handle */
 	int play_source(int source_handle, bool loop = false, bool paused = false) override;
 	void stop_playback(int play_handle) override;
 	void set_loop(int play_handle, bool loop) override;
     void pause_resume_playback(int play_handle, bool pause) override;
-	[[deprecated]]
-	void set_pause(int play_handle, bool pause) override;
-	void stop_all_playback() override;
 
-	// ? change_source(int play_handle, bool loop = false, bool paused = false, int fade_time_millis = 0);
-
-	// FIXME play_kss_source(int source_handle, int track, bool loop = false, bool paused = false)
-	// FIXME change_kss_source(int play_handle, int track, bool loop = false, bool paused = false, int fade_time_millis = 0);
-
-
-	// En plus a ajouter
-	void pause_producer(bool); // test
+	void pause_producer(bool);
 	bool set_mixer_buffer_parameters(int buffer_count, int buffer_sample_size) override;
-
-
-
-
 	
-	// void dbg_add_kss_cartrige(const std::string &filename);
 	int play_kss_track(int kss_handle, int track, bool autostop = true, bool forcable = true, bool force = true) override;
 	bool update_kss_track(int kss_handle, int new_track, bool autostop = true, bool forcable = true, int fade_out_ms = 0) override;
 
 	/**
 	 * @brief Update volume
 	 *
-	 * Update volume for a spécific line of a kss source of for all lines of a kss source.
+	 * Update volume for a specific line of a kss source of for all lines of a kss source.
 	 *
 	 * @param [in] kss_handle A kss source handle or a kss track handle.
 	 * @param [in] volume Volume value between 0 and 100
@@ -1870,7 +1757,7 @@ public:
 	 */
 	bool update_kss_volume(int kss_handle, int volume);
 	bool update_kss_frequency(int kss_source_handle, int frequency);
-	bool set_pause_kss(int kss_handle, bool pause);
+	// bool set_pause_kss(int kss_handle, bool pause);
 	int get_kss_active_lines_count(int kss_source_handle);
 	int get_kss_playtime_millis(int kss_play_handle) override;
 
@@ -1917,10 +1804,7 @@ bool MajimixPa::set_format(int rate, bool stereo, int bits, int channel_count)
 			else
 				encode = std::bind(&MajimixPa::encode_Nbits<3>, this, std::placeholders::_1);
 
-			// remplacement du mixer
-			// un bon compromis est 5 buffer (3 pas optimale et c'est la valeur min utilisable)
 			//  high latency : latency = bufsz * 5 * 1000  / 44100 = 100 ms (0.1 sec)
-			// on va utiliser (defaut) latency 100ms et 5 buffer (avec 5 buffer on peut en principe aller jsq 10/20 ms)
 			// => bufsz = 100 * rate / (buffer_count * 1000)
 			int buffer_count = 5;
 			int buffer_sample_size = 100 * rate / buffer_count / 1000;
@@ -1939,25 +1823,20 @@ bool MajimixPa::set_format(int rate, bool stereo, int bits, int channel_count)
 bool MajimixPa::set_mixer_buffer_parameters(int buffer_count, int buffer_sample_size)
 {
 	if(m_stream) return false;
-	// remplacement du mixer par defaut
 	mixer = std::make_unique<BufferedMixer>(buffer_count, buffer_sample_size, channels * (bits >> 3));
 
-	// ATTENTION ICI : LA TAILLE de  internal_mix_buffer DOIT ÊTRE EXACTEMENT celle ci : buffer_sample_size * channels
-	//                 On ne teste plus le nombre de sample à convertir dans mix de internal_mix_buffer à outbuffer et on prend tout !
-	//                 Si la taille est plus grande, on va dépasser la capacité de l'outbuffer de BuffererMixer et c'est la cata
 	internal_sample_buffer.assign(mixer->get_buffer_packet_sample_size() * channels, 0);
 	internal_mix_buffer.assign(mixer->get_buffer_packet_sample_size() * channels, 0);
 
 	mixer->set_mixer_function(std::bind(&MajimixPa::mix, this, std::placeholders::_1, std::placeholders::_2));
 
-	// FIXME support KSS -> mettre à jour la taille des buffer
+	// FIXME:  KSS support -> update buffers size
 
 	return true;
 }
 
 /* ------------------- MIXER ------------------------ */
 
-// rev. 0.2
 bool MajimixPa::start_stop_mixer(bool start)
 {
 	if(start)
@@ -1968,7 +1847,8 @@ bool MajimixPa::start_stop_mixer(bool start)
 			{
 				mixer->start();
 				if (mixer->is_started())
-					return set_playback(true);
+					// return set_playback(true);
+					pause_resume_mixer(false);
 			}
 		}
 		return false;
@@ -1980,7 +1860,8 @@ bool MajimixPa::start_stop_mixer(bool start)
 #ifdef DEBUG
 		std::cout << "stop MajimixPa" << std::endl;
 #endif
-		set_playback(false);
+		// set_playback(false);
+		pause_resume_mixer(true);
 		PaError err;
 		err = Pa_CloseStream(m_stream);
 		if (err != paNoError)
@@ -1996,7 +1877,6 @@ bool MajimixPa::start_stop_mixer(bool start)
 	return true;
 }
 
-// rev. 0.2
 bool MajimixPa::pause_resume_mixer(bool pause)
 {
 	// no stream return true for pause and false for resume
@@ -2019,10 +1899,6 @@ bool MajimixPa::pause_resume_mixer(bool pause)
 	return err == paNoError;
 }
 
-
-//  mixer status
-//  int MixerStopped, MixerPaused, MixerRunning or MixerError
-//  rev. 0.2
 int MajimixPa::get_mixer_status()
 {
 	int status = MixerStopped;
@@ -2042,10 +1918,6 @@ int MajimixPa::get_mixer_status()
 /* ------------------- SOURCES ------------------------ */
 
 
-
-// Add a source (wav or vorbis)
-// Incompatible with kss
-// rev. 0.2
 int MajimixPa::add_source(const std::string& name)
 {
 	int id = 0;
@@ -2098,12 +1970,8 @@ int MajimixPa::add_source(const std::string& name)
 	return id;
 }
 
-// rev. 0.2
 int MajimixPa::add_source_kss(const std::string& name, int lines, int silent_limit_ms)
 {
-	// if(!kss::test_kss(name))
-	// 	return -1;
-
 	if (lines <= 0)
 		return -1;
 
@@ -2111,7 +1979,6 @@ int MajimixPa::add_source_kss(const std::string& name, int lines, int silent_lim
 	if (!kss)
 		return -1;
 
-	// auto cartridge = std::make_unique<kss::CartridgeKSS>(name, lines, sampling_rate, channels, bits, silent_limit_ms);
 	auto cartridge = std::make_unique<kss::CartridgeKSS>(kss, lines, sampling_rate, channels, bits, silent_limit_ms);
 
 
@@ -2131,7 +1998,7 @@ int MajimixPa::add_source_kss(const std::string& name, int lines, int silent_lim
 			std::cout << "insert cartridge in slot "<<i<<"\n";
 #endif
 			c = std::move(cartridge);
-			// idem kss_cartridges[i] = std::move(cartridge);
+			//  kss_cartridges[i] = std::move(cartridge);
 			id = i+1;
 			break;
 		}
@@ -2153,7 +2020,6 @@ int MajimixPa::add_source_kss(const std::string& name, int lines, int silent_lim
 	return get_kss_source_id(id);
 }
 
-// rev. 0.2
 bool MajimixPa::drop_source(int source_handle)
 {
 	int source_type = get_source_type(source_handle);
@@ -2170,7 +2036,6 @@ bool MajimixPa::drop_source(int source_handle)
 	if (source_handle == 0)
 	{
 		// drop all
-
 		for (auto &mix_channel : mixer_channels)
 		{
 			mix_channel->active = false;
@@ -2190,8 +2055,6 @@ bool MajimixPa::drop_source(int source_handle)
 	}
 	else if (source_id > 0)
 	{
-
-
 		// Regular sources
 		if (source_type == 0)
 		{
@@ -2213,6 +2076,7 @@ bool MajimixPa::drop_source(int source_handle)
 				dropped = true;
 			}
 		}
+
 		// KSS sources
 		if (source_type == 1)
 		{
@@ -2222,8 +2086,6 @@ bool MajimixPa::drop_source(int source_handle)
 				dropped = true;
 			}
 		}
-	
-
 	}
 
 	if (active)
@@ -2235,7 +2097,6 @@ bool MajimixPa::drop_source(int source_handle)
 
 /* ------------------- SAMPLES ------------------------ */
 
-// rev 0.2
 int MajimixPa::play_source(int source_handle, bool loop, bool paused)
 {
 	int source_id = get_source_id(source_handle);
@@ -2268,14 +2129,13 @@ int MajimixPa::play_source(int source_handle, bool loop, bool paused)
 	return 0;
 }
 
-// rev 0.2
 int MajimixPa::play_kss_track(int kss_source_handle, int track, bool autostop, bool forcable, bool force)
 {
 	return kss_cartridge_action<int>(kss_source_handle, false, false, 0, [&](kss::CartridgeKSS &cartridge, int line_id) -> int {
 		int id = cartridge.active_line(track, autostop, forcable);
 		if(!id && force)
 		{
-			// no free line : so we have to force
+			// no free line : we have to force
 			bool need_reactive = mixer && mixer->is_active();
 			if (need_reactive)
 				mixer->pause(true);
@@ -2288,14 +2148,13 @@ int MajimixPa::play_kss_track(int kss_source_handle, int track, bool autostop, b
 
 		if(id) 
 		{
-			// we found a line : return the play_handle
+			// found a line : return the play_handle
 			return get_handle(kss_source_handle, id);
 		}
 		return 0;
 	});
 }
 
-// rev. 0.2
 bool MajimixPa::update_kss_track(int kss_handle, int new_track, bool autostop, bool forcable, int fade_out_ms)
 {
 	return kss_cartridge_action<bool>(kss_handle, true, true, false, [&new_track, &autostop, &forcable, &fade_out_ms](kss::CartridgeKSS &cartridge, int line_id) -> bool {
@@ -2303,10 +2162,6 @@ bool MajimixPa::update_kss_track(int kss_handle, int new_track, bool autostop, b
 	});
 }
 
-/**
- * TODO  return bool
- * rev. 0.2
- */
 void MajimixPa::stop_playback(int play_handle)
 {
 	if (play_handle == 0)
@@ -2321,7 +2176,7 @@ void MajimixPa::stop_playback(int play_handle)
 				mix_channel->stopped = true;
 				mix_channel->paused = false;
 
-				// FIXME  Please verify this !
+				// TODO:  Please verify this !
 				if (!m_stream) 
 				{
 					mix_channel->loop = false;   // XXX needed ?
@@ -2385,46 +2240,16 @@ void MajimixPa::stop_playback(int play_handle)
 }
 
 /* ---------------------- OTHERS ----------------------------- */
+
+
 void MajimixPa::set_master_volume(int v)
 {
 	master_volume.store(v & 0xFF);
 
 }
 
-
-/**
- * TODO  Channels ! =>  update_volume  (0 : master source ou sample)
- * 
- * 
- *
- * @brief Update volume
- *
- * Update volume for a spécific line of a kss source of for all lines of a kss source.
- *
- * @param [in] kss_handle A kss source handle or a kss track handle.
- * @param [in] volume Volume value between 0 and 100
- * @return True if successful / False for an invalid \c kss_track_handle.
- */
 bool MajimixPa::update_kss_volume(int kss_handle, int volume)
 {
-//	kss::CartridgeKSS *cartridge;
-//	int line_id;
-//	if(get_cartrigde_and_line(kss_handle, false, cartridge, line_id))
-//	{
-//		if(line_id > 0)
-//			return kss_action<bool>(true, [&cartridge, &line_id, &volume]() -> bool {
-//						cartridge->set_line_volume(line_id, volume);
-//						return true;
-//		           });
-//		else
-//			return kss_action<bool>(true, [&cartridge, &volume]() -> bool {
-//						cartridge->set_master_volume(volume);
-//						return true;
-//		           });
-//
-//	}
-//	return false;
-
 	bool is_sample = get_channel_id(kss_handle);
 	return kss_cartridge_action<bool>(kss_handle, true, is_sample, false, [&volume, &is_sample](kss::CartridgeKSS &cartridge, int line_id) -> bool {
 		
@@ -2435,30 +2260,14 @@ bool MajimixPa::update_kss_volume(int kss_handle, int volume)
 		return true;
 
 	});
-
-
-
-	// 	   return kss_cartridge_action_line<bool>(kss_handle, true, false, [&volume](kss::CartridgeKSS &cartridge, int line_id) -> bool {
-	// 	      cartridge.set_line_volume(line_id, volume);
-	// 	   return true;
-	//     });
-	// else
-	// 	   return kss_cartridge_action<bool>(kss_handle, true, false, [&volume](kss::CartridgeKSS &cartridge) -> bool {
-	// 	      cartridge.set_master_volume(volume);
-	// 	   return true;
-	//     });
 }
 
-
-// not needed
 void MajimixPa::pause_producer(bool pause) // test
 {
-	// return mixer && mixer->pause(pause);
 	if(mixer)
 		mixer->pause(pause);
 }
 
-// TODO  KSS
 void MajimixPa::set_loop(int play_handle, bool loop)
 {
 	unsigned int source_id   = get_source_id(play_handle);
@@ -2524,105 +2333,7 @@ void MajimixPa::pause_resume_playback(int play_handle, bool pause)
 	}
 }
 
-// not needed ! but fix pause_resume_playback
-void MajimixPa::set_pause(int play_handle, bool pause)
-{
-	
-	if(get_source_type(play_handle) == 1)
-		set_pause_kss(play_handle, pause);
-	else
-	{
-		unsigned int source_id   = get_source_id(play_handle);
-		unsigned int channel_id  = get_channel_id(play_handle);
-		if(source_id && channel_id)
-		{
-			mixer_channels[channel_id-1]->paused = pause;
-		}
-	}
-}
 
-// not needed
-bool MajimixPa::set_pause_kss(int kss_handle, bool pause)
-{
-	bool is_sample = get_channel_id(kss_handle);
-	return kss_cartridge_action<bool>(kss_handle, false, is_sample, false, [&pause, &is_sample](kss::CartridgeKSS &cartridge, int line_id) -> bool {
-		if (is_sample)
-			cartridge.set_pause(line_id, pause);
-		else
-			cartridge.set_pause_active(pause);
-		return true;
-	});
-}
-
-
-
-
-
-// becomes useless : see stop_playback
-bool MajimixPa::stop_kss(int kss_handle)
-{
-	bool is_sample = get_channel_id(kss_handle);
-	return kss_cartridge_action<bool>(kss_handle, false, is_sample, false, [&is_sample](kss::CartridgeKSS &cartridge, int line_id) -> bool {
-		if (is_sample)
-			cartridge.stop(line_id);
-		else
-			cartridge.stop_active();
-		return true;
-	});
-}
-
-// becomes useless : see stop_playback(source)
-void MajimixPa::stop_source(int source_handle)
-{
-	int sid = get_source_id(source_handle);
-	if(sid)
-	{
-		for(auto& mix_channel : mixer_channels)
-		{
-			if(mix_channel->sid == sid && mix_channel->active && !mix_channel->stopped)
-			{
-				mix_channel->stopped = true;
-				mix_channel->paused = false;
-			}
-		}
-	}
-}
-
-// becomes useless : see stop_playback(0)
-void MajimixPa::stop_all_playback()
-{
-	if(m_stream)
-	{
-		for(auto& mix_channel : mixer_channels)
-		{
-			if(mix_channel->active)
-			{
-				mix_channel->stopped = true;
-				mix_channel->paused = false;
-			}
-		}
-	}
-	else
-	{
-		for(auto& mix_channel : mixer_channels)
-		{
-			mix_channel->stopped = true;
-			mix_channel->paused  = false;
-			mix_channel->loop    = false;
-			mix_channel->active  = false;
-		}
-	}
-}
-
-
-/** Priv
- * création du stream PortAudio pour le playback
- *
- * 	m_stream est supposé null
- *
- * 	m_options.channels et m_options.rate
- * 	sont utilisés pour la création du stream
- */
 bool MajimixPa::create_stream() {
 	// check no stream
 	if(m_stream)
@@ -2662,10 +2373,9 @@ bool MajimixPa::create_stream() {
 			nullptr, /* no input */
 			&outputParameters,
 			sampling_rate,
-			paFramesPerBufferUnspecified, // <- meilleur pour portaudio   :  samplesPerBuffer (ex rate /100 for 10ms)
+			paFramesPerBufferUnspecified, // <- best for PortAudio   
 			paClipOff,      /* we won't output out of range samples so don't bother clipping them */
 			&MajimixPa::paCallback,
-			//&callback2,
 			this);
 
 	// check error
@@ -2698,17 +2408,14 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 			else if(!mix_channel->paused)
 			{
 
-				// TODO : ici on recupere dans le bon format + on ajoute à internal_mix_buffer avant d'ajuster le volume
-				//        donc 2 phases
-				//        on pourrait essayer d'ajouter directement sans passer par internal_sample_buffer mais necessite une mise à jour pour la recupération des samples
-
+				// TODO: stop using internal_sample_buffer but use directly internal_mix_buffer to avoid a copy ?
 
 				sample_count = mix_channel->sample->read(&internal_sample_buffer[0], requested_sample_count);
 				if(mix_channel->loop && sample_count < requested_sample_count)
 				{
 					while(sample_count < requested_sample_count)
 					{
-						// EOF - AUTOLOOP plus necessaire : mix_channel->sample->seek(0);
+						// EOF - AUTOLOOP 
 						int idx = sample_count * channels;
 						sample_count += mix_channel->sample->read(&internal_sample_buffer[0] + idx, requested_sample_count - sample_count);
 					}
@@ -2731,35 +2438,20 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 		}
 	}
 
+	// kss support
+
 	for(auto &ck : kss_cartridges)
 	{
 		if(ck)
 		{
-			// V1
 			ck->read(internal_mix_buffer.begin(), requested_sample_count);
 		}
 	}
 
-//	for(auto &ck : kss_cartridges)
-//	{
-//		if(ck)
-//		{
-//			for(auto &line : *ck)
-//			{
-//				// V2
-//				ck->read(internal_mix_buffer.begin(), *line, requested_sample_count);
-//			}
-//		}
-//	}
-
-
-	// ajustement du volume
-	int vol = master_volume.load(); // équivalent à vol = master_volume
-	// la taille de internal_mix_buffer (et également de internal_sample_buffer) est de requested_sample_count * channels par construction
-	// => on peut utiliser internal_mix_buffer.end()
+	// volume adjustment
+	int vol = master_volume; // .load();
 	std::for_each(internal_mix_buffer.begin(), internal_mix_buffer.end(), [&vol](int &n){ n = ((int_fast64_t) n * vol) >> 8; });
 
-	// encodage
 	encode(it_out);
 }
 
@@ -2768,15 +2460,6 @@ void MajimixPa::read(char *out_buffer, int requested_sample_count)
 	mixer->read(out_buffer, requested_sample_count);
 }
 
-
-
-/**
- *
- * @tparam N     2 16 bits 3 24 bits
- * @param it_int mixed input buffer
- * @param it_out output buffer
- * @param sample_count number of samples to convert
- */
 template<int N>
 void MajimixPa::encode_Nbits(std::vector<char>::iterator it_out)
 {
@@ -2804,114 +2487,9 @@ int MajimixPa::paCallback(const void *input_buffer, void *output_buffer,
 	return paContinue;
 }
 
-// int MajimixPa::paCallback2(const void *input_buffer, void *output_buffer,
-// 						   unsigned long frames_per_buffer,
-// 						   const PaStreamCallbackTimeInfo* timeInfo,
-// 						   PaStreamCallbackFlags statusFlags,
-// 						   void *userData ) {
-// //	static_cast<MajimixPa*>(userData)->read((char *) output_buffer, frames_per_buffer);
-// 	read((char *) output_buffer, frames_per_buffer);
-// 	return paContinue;
-// }
 
-[[deprecated("replaced by pause_resume_mixer(bool pause)")]]
-bool MajimixPa::set_playback(bool on)  {
-	return pause_resume_mixer(!on);
-	// // pas de stream on retourne true si off sinon false
-	// if(!m_stream)
-	// 	return !on;
+/* --------------------------  KSS SUPPORT -------------------------- */
 
-	// PaError err = paNoError;
-	// err = Pa_IsStreamActive(m_stream);
-	// if(err < 0)
-	// 	return false;
-
-	// if(err == 0 && on) {
-	// 	// off -> on
-	// 	err = Pa_StartStream(m_stream);
-
-	// } else if(err == 1 && !on) {
-	// 	// on -> off
-	// 	err = Pa_StopStream(m_stream);
-	// }
-	// return err == paNoError;
-}
-
-/*
-* Close PortAudio stream
-*/
-[[deprecated("replaced by start_stop_mixer(bool start)")]]
-void MajimixPa::stop() {
-	start_stop_mixer(false);
-// 	// fermeture du stream PortAudio
-// 	if(m_stream) {
-// #ifdef DEBUG
-// 		std::cout << "cleanup" << std::endl;
-// #endif
-// 		// arrêt du playback
-// 		set_playback(false);
-// 		PaError err;
-// 		err = Pa_CloseStream( m_stream );
-// 		if( err != paNoError ) {
-// 			std::cerr << "Error while closing stream - code "<<err<<std::endl;
-// 		}
-// 		m_stream = nullptr;
-// 	}
-
-// 	if(mixer)
-// 		mixer->stop();
-}
-
-
-
-[[deprecated("replaced by start_stop_mixer(bool start)")]]
-bool MajimixPa::start()
-{
-	return start_stop_mixer(true);
-	// if(!m_stream && mixer)
-	// {
-	// 	if(create_stream())
-	// 	{
-	// 		mixer->start();
-	// 		if(mixer->is_started())
-	// 			return set_playback(true);
-	// 	}
-	// }
-	// return false;
-}
-
-[[deprecated("replaced by pause_resume_mixer(bool paused)")]]
-void MajimixPa::pause(bool paused)
-{
-	// set_playback(!paused);
-	pause_resume_mixer(paused);
-}
-
-
-
-
-
-
-
-
-
-
-/* -------------------------- SUPPORT KSS -------------------------- */
-
-
-
-/**
- * @brief Get a CartridgeKSS an a KSSLine from a kss handle
- *
- * recupère l'id Cartrigde et line_id depuis kss_handle
- * retourne true si Cartrigde existe et n'est pas null et si  !need_line ou si need_line et line_id est bien un indice (1 based) identifiant une KSSLine de cartridge
- *
- * @param kss_handle
- * @param need_line  True : Tell if the kss handle must represent a valid kss line. False : the kss handle must be a valid kss source (and éventualy contains a line)
- * @param cartridge
- * @param line_id
- * @return
- */
 bool MajimixPa::get_cartrigde_and_line(int kss_handle, bool need_line, kss::CartridgeKSS *&cartridge, int &line_id)
 {
 	int idx;
@@ -2952,7 +2530,6 @@ T MajimixPa::kss_cartridge_action(int kss_source_handle, bool need_sync, bool ne
 	return default_ret_val;
 }
 
-
 bool MajimixPa::update_kss_frequency(int kss_handle, int frequency)
 {
 	if(kss_handle)
@@ -2981,9 +2558,6 @@ bool MajimixPa::update_kss_frequency(int kss_handle, int frequency)
 		
 	return true;
 }
-
-
-
 
 int MajimixPa::get_kss_active_lines_count(int kss_source_handle)
 {
@@ -3037,17 +2611,4 @@ MAJIMIXAPI void APIENTRY terminate()
 }
 
 } // namespace pa
-
-MAJIMIXAPI bool APIENTRY is_valid_kss_file(const std::string &filename) 
-{
-	bool valid = false;
-	KSS *kss = kss::load_kss(filename);
-	if(kss)
-	{
-		KSS_delete(kss);
-		kss = nullptr;
-		valid = true;
-	}
-	return valid;
-}
 } // namespace majimix
