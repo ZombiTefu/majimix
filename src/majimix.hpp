@@ -3,8 +3,9 @@
  *
  * @section majimix_desc_hpp DESCRIPTION
  *
- * Majimix is a high level API for playing back audio sources (WAVE files, Xiph Ogg audio files, KSS files).
- * This mixer is able to play multiple audio sources simultaneously (sound, background music)
+ * Majimix is a high-level API designed to play simultaneously audio sources
+ * (WAVE files, Xiph Ogg audio files, KSS files) as sounds or background musics.
+ * 
  * This version of Majimix uses the following libraries:
  *  - PortAudio   (http://www.portaudio.com/)
  *  - Xiph libogg (https://xiph.org/ogg) 
@@ -43,7 +44,8 @@
  * 
  * @section intro_sec Introduction
  *
- * Majimix is a high level API for playing back audio sources (WAVE files, Xiph Ogg audio files, KSS files).
+ * Majimix is a high-level API designed to play simultaneously audio sources
+ * (WAVE files, Xiph Ogg audio files, KSS files) as sounds or background musics.
  * 
  * @subsection format_sub Currently supported File Formats
  * 
@@ -56,40 +58,56 @@
  * \section example_sec Code example
  * 
  * \code{.cpp}
- *		// initialize majimix
- *		majimix::pa::initialize();
- *
- *		// create a majimix instance
- *		auto majimix_ptr = majimix::pa::create_instance();
- *
- *		// set the majimix output format : rate 44,1 KHz Stéreo 16 bits
- *		// and use 3 channels : you can play 3 sounds simultaneously
- *		if(majimix_ptr->set_format( 44100, true, 16, 3))
- *		{
- *			// You can also configure the internal buffers here - this is optional and allows to manage the latency
- *			// In this example: 3 buffers of 4410 samples - for a latency of 3 tenths of a second
- *			// majimix_ptr->set_mixer_buffer_parameters(3, 4410);
- *			// ... to reduce latency, we could use 6 buffers of 147 samples for a latency of 2 hundredths of a second (see set_mixer_buffer_parameters for more information on this subject).
- *
- *			// add source and get the source handle
- *			int source_handle = majimix_ptr->add_source("my_sound.ogg");
- *
- *			// ... add other sources ...
- *
- *			// start majimix instance
- *			if(majimix_ptr->start_mixer())
- *			{
- *				// play a sound : my_sound.ogg
- *				int play_handle = majimix_ptr->play_source(source_handle, true, false);
- *				
- *				// ... app loop ...  (you can still add/remove sources)
- *
- *				// stop majimix
- *				majimix_ptr->stop_mixer();
- *			}
- *		}
- *		// dispose
- *		majimix::pa::terminate();
+ * #include <iostream>
+ * #include <majimix/majimix.hpp>
+ * 
+ * int main()
+ * {
+ *     // initialize majimix
+ *     majimix::pa::initialize();
+ * 
+ *     // create a majimix instance
+ *     auto majimix_ptr = majimix::pa::create_instance();
+ * 
+ *     // set the majimix output format : rate 44,1 KHz stereo 16 bits
+ *     // and use 10 channels : you can play 10 sounds simultaneously
+ *     if (majimix_ptr->set_format(44100, true, 16, 10))
+ *     {
+ *         majimix_ptr->set_master_volume(50);
+ *         // add source and get the source handle (it can be done later)
+ *         int source_handle_1 = majimix_ptr->add_source("bgm.ogg");
+ *         // ... add other sources ...
+ * 
+ *         // start majimix instance
+ *         if (majimix_ptr->start_mixer())
+ *         {
+ *             // play bgm.ogg (loop)
+ *             int play_handle_1 = majimix_ptr->play_source(source_handle_1, true, false);
+ *             std::cout << play_handle_1 << "\n";
+ * 
+ *             // add a new source
+ *             int source_handle_2 = majimix_ptr->add_source("sound.wav");
+ *             std::cout << source_handle_2 << "\n";
+ * 
+ *             // press any key 'q' to quit
+ *             char u = 0;
+ *             while(u != 'q') 
+ *             {
+ *                 // play sound.wav (once) while bgm.ogg continu
+ *                 int play_handle_2 = majimix_ptr->play_source(source_handle_2);
+ *                 std::cout << "Press 'q' to quit\n";
+ *                 std::cin >> u; 
+ *             }
+ * 
+ *             // stop majimix
+ *             majimix_ptr->stop_mixer();
+ *         }
+ *     }
+ * 
+ *     // dispose
+ *     majimix::pa::terminate();
+ *     return 0;
+ * }
  * \endcode
  * 
  * 
@@ -307,7 +325,7 @@ public:
 	virtual int play_kss_track(int kss_source_handle, int track, bool autostop = true, bool forcable = true, bool force = true) = 0;
 
 	/**
-	 * @brief Update a spécific kss line
+	 * @brief Update a specific kss line
 	 * Can be use to change the current track of the line.
 	 *
 	 * @param [in] kss_track_handle The kss handle returned by play_kss_track
@@ -371,7 +389,7 @@ public:
 	/**
 	 * @brief Update volume
 	 *
-	 * Update volume for a spécific line of a kss source of for all lines of a kss source.
+	 * Update volume for a specific line of a kss source of for all lines of a kss source.
 	 *
 	 * @param [in] kss_handle A kss source handle or a kss track handle.
 	 * @param [in] volume Volume value between 0 and 100

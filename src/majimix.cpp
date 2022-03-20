@@ -1847,8 +1847,10 @@ bool MajimixPa::start_stop_mixer(bool start)
 			{
 				mixer->start();
 				if (mixer->is_started())
+				{
 					// return set_playback(true);
-					pause_resume_mixer(false);
+					return pause_resume_mixer(false);
+				}
 			}
 		}
 		return false;
