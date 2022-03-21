@@ -1,3 +1,5 @@
+[![CMake](https://github.com/ZombiTefu/majimix/actions/workflows/cmake.yml/badge.svg)](https://github.com/ZombiTefu/majimix/actions/workflows/cmake.yml)
+
 # Majimix
 
 ## Overview
