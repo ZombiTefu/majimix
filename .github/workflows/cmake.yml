@@ -27,8 +27,7 @@ jobs:
         mkdir deps
         cd deps
         git clone https://github.com/PortAudio/portaudio
-        cd portaudio
-        git checkout 147dd722548358763a8b649b3e4b41dfffbcfbb6
+        cd portaudio  
         mkdir build
         cd build
         cmake ..
