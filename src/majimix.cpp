@@ -1825,8 +1825,9 @@ bool MajimixPa::set_mixer_buffer_parameters(int buffer_count, int buffer_sample_
 	if(m_stream) return false;
 	mixer = std::make_unique<BufferedMixer>(buffer_count, buffer_sample_size, channels * (bits >> 3));
 
-	internal_sample_buffer.assign(mixer->get_buffer_packet_sample_size() * channels, 0);
-	internal_mix_buffer.assign(mixer->get_buffer_packet_sample_size() * channels, 0);
+	size_t buffer_size = static_cast<long>(mixer->get_buffer_packet_sample_size()) * channels;
+	internal_sample_buffer.assign(buffer_size, 0);
+	internal_mix_buffer.assign(buffer_size, 0);
 
 	mixer->set_mixer_function(std::bind(&MajimixPa::mix, this, std::placeholders::_1, std::placeholders::_2));
 
@@ -2418,14 +2419,14 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 					while(sample_count < requested_sample_count)
 					{
 						// EOF - AUTOLOOP 
-						int idx = sample_count * channels;
+						long idx = static_cast<long>(sample_count) * channels;
 						sample_count += mix_channel->sample->read(&internal_sample_buffer[0] + idx, requested_sample_count - sample_count);
 					}
 				}
 
 				if(sample_count)
 				{
-					std::transform(internal_sample_buffer.begin(), internal_sample_buffer.begin() + sample_count * channels, internal_mix_buffer.begin(), internal_mix_buffer.begin(), std::plus<int>());
+					std::transform(internal_sample_buffer.begin(), internal_sample_buffer.begin() + static_cast<long>(sample_count) * channels, internal_mix_buffer.begin(), internal_mix_buffer.begin(), std::plus<int>());
 				}
 				if(sample_count < requested_sample_count)
 				{
