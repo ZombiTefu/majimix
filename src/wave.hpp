@@ -34,9 +34,7 @@
 #include <cstdint>
 #include <iostream>
 
-namespace majimix
-{
-namespace wave
+namespace majimix::wave
 {
 
 extern const bool little_endian;
@@ -110,6 +108,6 @@ int16_t ALaw_Decode(int8_t number);
 int16_t MuLaw_Decode(int8_t number);
 
 }
-}
+
 
 #endif /* WAVE_HPP_ */

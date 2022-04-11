@@ -31,8 +31,7 @@
 #include "wave.hpp"
 #include <fstream>
 
-namespace majimix {
-namespace wave {
+namespace majimix::wave {
 const int num_one = 1;
 const bool little_endian = (*(char *)&num_one) == 1;
 
@@ -307,7 +306,9 @@ int16_t ALaw_Decode(int8_t number)
 		decoded = (number << 1) | 1;
 	}
 	// FJ : add << 4 (volume too low) (12-bit magnitude data is used in A-law)
-	return ((sign == 0) ? (decoded) : (-decoded)) << 4;
+	// return ((sign == 0) ? (decoded) : (-decoded)) << 4;
+	decoded *= 8;
+	return sign == 0 ? decoded : -decoded;
 }
 
 int16_t MuLaw_Decode(int8_t number)
@@ -324,10 +325,12 @@ int16_t MuLaw_Decode(int8_t number)
 	position = ((number & 0xF0) >> 4) + 5;
 	decoded = ((1 << position) | ((number & 0x0F) << (position - 4)) | (1 << (position - 5))) - MULAW_BIAS;
 	// FJ : add << 3 (volume too low) (13-bit magnitude data)
-	return ((sign == 0) ? (decoded) : (-(decoded))) << 3;
+	// return ((sign == 0) ? (decoded) : (-(decoded))) << 3;
+	decoded *= 5;
+	return sign == 0 ? decoded : -decoded;
 }
 }
-}
+
 
 
 
