@@ -46,8 +46,7 @@ class SourceVorbis : public Source {
     int mixer_channels;
 
     /* step of the Sample */
-    // friend class SampleVorbis;
-    friend class SampleVorbisF;
+    friend class SampleVorbis;
 
 public:
     bool set_file(const std::string &filename);
@@ -57,52 +56,7 @@ public:
     std::unique_ptr<Sample> create_sample() override;
 };
 
-// class SampleVorbis : public Sample
-// {
-//     const SourceVorbis *source;
-//     std::ifstream stream;
-//     OggVorbis_File file;
-
-//     /* sample rate : sample per sec */
-//     int sample_rate;
-//     /* size of one sample : 1 sample <=> format size (octets) x channels  : ex 16 bits stereo => 2 x 2 = 4 */
-//     int sample_size;
-//     /* channels count */
-//     int channels;
-//     /* size of one channel = sample_size / channels */
-//     int channel_size;
-
-//     uint_fast64_t sample_step;
-
-//     /* multistream support */
-//     int current_section, last_section;
-
-//     uint_fast64_t sample_frac;
-//     int32_t idx_1, idx_2, idx_lim;
-
-//     bool initialized = false;
-//     friend class SourceVorbis;
-
-//     constexpr static int internal_buffer_size = 4096;
-//     char internal_buffer[internal_buffer_size];
-//     int32_t buffer_read_length = 0;
-
-//     /* verifies and completes source initialization */
-//     void configure();
-
-// public:
-//     SampleVorbis(const SourceVorbis &s);
-//     ~SampleVorbis();
-//     int32_t read(int32_t *buffer, int32_t sample_count) override;
-//     //	int read_test(char* buffer, int sample_count);
-//     void seek(long pos) override;
-//     void seek_time(double pos) override;
-//     /* duration in seconds */
-//     double sample_time();
-// };
-
-
-class SampleVorbisF : public Sample
+class SampleVorbis : public Sample
 {
     const SourceVorbis *source;
     std::ifstream stream;
@@ -124,22 +78,21 @@ class SampleVorbisF : public Sample
 
     int32_t min_buffer_data_size;
     int32_t max_buffer_idx;
-    double sample_pos = 0;
+    double sample_pos;
 
     bool initialized = false;
 
     constexpr static int internal_buffer_size = 4096;
     char internal_buffer[internal_buffer_size];
-    int32_t buffer_read_length; // = 0;
+    int32_t buffer_read_length;
 
     /* verifies and completes source initialization */
     void configure();
 
 public:
-    SampleVorbisF(const SourceVorbis &s);
-    ~SampleVorbisF();
+    SampleVorbis(const SourceVorbis &s);
+    ~SampleVorbis();
     int32_t read(int32_t *buffer, int32_t sample_count) override;
-    //	int read_test(char* buffer, int sample_count);
     void seek(long pos) override;
     void seek_time(double pos) override;
     /* duration in seconds */
