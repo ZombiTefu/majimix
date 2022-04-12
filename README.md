@@ -1,5 +1,5 @@
 [![CMake](https://github.com/ZombiTefu/majimix/actions/workflows/cmake.yml/badge.svg)](https://github.com/ZombiTefu/majimix/actions/workflows/cmake.yml)
-
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 # Majimix
 
 ## Overview
@@ -39,7 +39,7 @@ int main()
             int source_handle_2 = majimix_ptr->add_source("sound.wav");
             std::cout << source_handle_2 << "\n";
 
-            // press any key 'q' to quit
+            // press any key ('q' to quit)
             char u = 0;
             while(u != 'q') 
             {

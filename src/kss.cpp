@@ -41,43 +41,6 @@ KSS *load_kss(const std::string &filename)
 	return KSS_load_file((char *)filename.c_str());
 }
 
-// /* TEST : --- to replace with KSS_delete & KSSPLAY_delete --- */
-// void kss_deleter(KSS* kss)
-// {
-// #ifdef DEBUG
-// std::cout <<"kss_deleter - ";
-// #endif
-// 	if(kss)
-// 	{
-// 		KSS_delete(kss);
-// #ifdef DEBUG
-// 		std::cout << "deleted\n";
-// #endif
-// 	}
-// #ifdef DEBUG
-// 	else
-// 		std::cout << "nop\n";
-// #endif
-// }
-
-// void kssplay_deleter(KSSPLAY* kssplay)
-// {
-// #ifdef DEBUG
-// 	std::cout <<"kssplay_deleter - ";
-// #endif
-// 	if(kssplay)
-// 	{
-// 		KSSPLAY_delete(kssplay);
-// #ifdef DEBUG
-// 		std::cout << "deleted\n";
-// #endif
-// 	}
-// #ifdef DEBUG
-// 	else
-// 		std::cout << "nop\n";
-// #endif
-// }
-
 static KSS *KSS_copy(KSS *kss)
 {
 	KSS *kss_copy{nullptr};

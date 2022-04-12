@@ -13,10 +13,10 @@
  *
  *
  * @author François Jacobs 
- * @date 07/03/2022
- * @version 0.4
+ * @date 2022-04-12
+ * @version 0.5
  *
- * @section majimix_lic_hpp LICENSE
+ * @section majimix_lic LICENSE
  *
  * The MIT License (MIT)
  * 

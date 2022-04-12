@@ -3,6 +3,12 @@
 
 # directories
 build
+resources
+
+#other
+reminder.txt
+test_*.cpp
+
 
 # Compiled Object files
 *.slo

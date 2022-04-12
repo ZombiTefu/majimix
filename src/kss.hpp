@@ -100,8 +100,8 @@ struct KSSLine
 		  kssplay_ptr{nullptr, &KSSPLAY_delete},
 		  active{false},
 		  pause{false},
-		  forcable{true},
 		  autostop{false},
+		  forcable{true},
 		  current_track{0},
 		  transition_fadeout{0},
 		  next_track{0}

@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.13)
-project(majimix LANGUAGES CXX C VERSION 0.4 DESCRIPTION "Simple audio mixer")
+project(majimix LANGUAGES CXX C VERSION 0.5 DESCRIPTION "Simple audio mixer")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -s -O3")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -s -O3")
+# set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -s -O3")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -s -O3 -Wall")
 
+add_definitions(-DMAJIMIX_EXPORTS)
+# uses floating point to resample
+add_definitions(-DMAJIMIX_USE_FLOATING_POINT)
 
 # Set a default build type if none was specified
 set(default_build_type "Release")
@@ -29,6 +33,10 @@ set(MAJIMIX_LIB_NAME ${PROJECT_NAME}_pa)
 add_library(${MAJIMIX_LIB_NAME} SHARED
   src/wave.cpp
   src/kss.cpp
+  src/converters.cpp
+  src/source_pcm.cpp
+  src/source_vorbis.cpp
+  src/mixer_buffer.cpp
   src/majimix.cpp
 )
 
@@ -111,32 +119,44 @@ install(FILES ${CMAKE_BINARY_DIR}/${MAJIMIX_LIB_NAME}.pc
     DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pkgconfig
 )
 
-# # test
+
+
+# option(BUILD_TESTING "" ON)
+# # test 
 # # ----
 # if(${BUILD_TESTING})
-
 #       message(STATUS "prepare test")
 #       enable_testing()
-#       set(MAJIMIX_LIB_TEST ${MAJIMIX_LIB_NAME}-test)
-#       add_executable(${MAJIMIX_LIB_TEST} src/majimix_test.cpp)
-#       target_compile_options(${MAJIMIX_LIB_TEST} PUBLIC "$<$<CONFIG:RELEASE>:${-O3}>")
-#       target_link_options(${MAJIMIX_LIB_TEST} PUBLIC "$<$<CONFIG:RELEASE>:${-s}>")
-#       target_link_libraries(${MAJIMIX_LIB_TEST} ${MAJIMIX_LIB_NAME})
+#       add_executable(test_dc src/test_dc.cpp)
+#       target_compile_options(test_dc PUBLIC "$<$<CONFIG:RELEASE>:${-O3}>")
+#       target_link_options(test_dc PUBLIC "$<$<CONFIG:RELEASE>:${-s}>")
+#       target_link_libraries(test_dc ${MAJIMIX_LIB_NAME})
+
+#       add_executable(test_ogg src/test_ogg.cpp)
+#       target_compile_options(test_ogg PUBLIC "$<$<CONFIG:RELEASE>:${-O3}>")
+#       target_link_options(test_ogg PUBLIC "$<$<CONFIG:RELEASE>:${-s}>")
+#       target_link_libraries(test_ogg ${MAJIMIX_LIB_NAME})
 
 #       set(RES_FILES 
-#         mario-galaxy-2-epilogue.ogg
-#         quiet.ogg
-#         nemesis2.kss
-#         goonies.kss
+#       u8-22050-stereo.wav
+#       alaw-22050-stereo.wav
+#       ulaw-22050-stereo.wav
+#       s16-22050-stereo.wav
+#       s24-22050-stereo.wav
+#       s32-22050-stereo.wav
+#       f32-22050-stereo.wav
+#       f64-22050-stereo.wav
+#       "Excellent !.wav"
+#       55239520-D.ogg
 #       )
 #       FOREACH(rf ${RES_FILES})
 #         add_custom_command(
-#               TARGET  ${MAJIMIX_LIB_TEST} POST_BUILD
+#               TARGET  test_dc POST_BUILD
 #               COMMAND ${CMAKE_COMMAND} -E copy
 #                       ${CMAKE_SOURCE_DIR}/resources/${rf}
 #                       ${CMAKE_CURRENT_BINARY_DIR}/resources/${rf})
 #       ENDFOREACH()
 
 #       #target_link_libraries(${MAJIMIX_LIB_TEST} ${MAJIMIX_LIB_NAME})
-#       add_test(NAME ${MAJIMIX_LIB_TEST} COMMAND ${MAJIMIX_LIB_TEST})
+#     #   add_test(NAME ${MAJIMIX_LIB_TEST} COMMAND ${MAJIMIX_LIB_TEST})
 # endif()
