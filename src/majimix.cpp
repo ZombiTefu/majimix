@@ -953,6 +953,7 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 	//auto it_begin = it_out;
 	int sample_count;
 	bool deactivate;
+	bool mix_buffer_has_data = false;
 
 	std::fill(internal_mix_buffer.begin(), internal_mix_buffer.end(), 0);
 
@@ -968,23 +969,28 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 			}
 			else if(!mix_channel->paused)
 			{
-
-				// TODO: stop using internal_sample_buffer but use directly internal_mix_buffer to avoid a copy ?
-
-				sample_count = mix_channel->sample->read(&internal_sample_buffer[0], requested_sample_count);
+				int *target_buffer = mix_buffer_has_data ? internal_sample_buffer.data() : internal_mix_buffer.data();
+				sample_count = mix_channel->sample->read(target_buffer, requested_sample_count);
 				if(mix_channel->loop && sample_count < requested_sample_count)
 				{
 					while(sample_count < requested_sample_count)
 					{
 						// EOF - AUTOLOOP 
 						long idx = static_cast<long>(sample_count) * channels;
-						sample_count += mix_channel->sample->read(&internal_sample_buffer[0] + idx, requested_sample_count - sample_count);
+						sample_count += mix_channel->sample->read(target_buffer + idx, requested_sample_count - sample_count);
 					}
 				}
 
 				if(sample_count)
 				{
-					std::transform(internal_sample_buffer.begin(), internal_sample_buffer.begin() + static_cast<long>(sample_count) * channels, internal_mix_buffer.begin(), internal_mix_buffer.begin(), std::plus<int>());
+					if(mix_buffer_has_data)
+					{
+						std::transform(internal_sample_buffer.begin(), internal_sample_buffer.begin() + static_cast<long>(sample_count) * channels, internal_mix_buffer.begin(), internal_mix_buffer.begin(), std::plus<int>());
+					}
+					else
+					{
+						mix_buffer_has_data = true;
+					}
 				}
 				if(sample_count < requested_sample_count)
 				{
