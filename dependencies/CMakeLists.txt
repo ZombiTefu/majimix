@@ -1,9 +1,13 @@
 include(FetchContent)
 
+if(NOT DEFINED MAJIMIX_LIBKSS_GIT_TAG)
+  set(MAJIMIX_LIBKSS_GIT_TAG "1.2.1")
+endif()
+
 FetchContent_Declare(
   libkss
   GIT_REPOSITORY "https://github.com/digital-sound-antiques/libkss"
-  GIT_TAG 751cd56267ba4eaca6b0e1b45f9184473620aebe
+  GIT_TAG ${MAJIMIX_LIBKSS_GIT_TAG}
 )
 
 add_subdirectory(libkss)

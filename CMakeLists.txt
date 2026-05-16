@@ -46,6 +46,8 @@ add_library(${MAJIMIX_LIB_NAME} SHARED
 
 include(FindPkgConfig)
 
+set(MAJIMIX_LIBKSS_GIT_TAG "1.2.1" CACHE STRING "Git tag or commit used to fetch libkss")
+
 # Vorbisfile
 pkg_search_module(VORBISFILE vorbisfile>=1.3 REQUIRED)
 if(${VORBISFILE_FOUND})
