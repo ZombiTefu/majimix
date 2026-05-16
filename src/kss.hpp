@@ -250,6 +250,13 @@ public:
 
 	/** playing time of a line for a track*/
 	int get_playtime_millis(int line_id);
+// TIA
+	/**
+	 * @brief Pre-allocate the internal mixing buffer to avoid heap allocation in the audio hot path.
+	 *        Must be called whenever the mixer buffer sample size changes.
+	 * @param buffer_sample_size The number of samples per buffer packet (buffer_packet_sample_size).
+	 */
+	void reserve_lines_buffer(int buffer_sample_size);
 };
 }
 

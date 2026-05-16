@@ -492,6 +492,11 @@ void CartridgeKSS::set_kss_line_frequency(int line_id, int frequency)
 {
 	set_kss_line_frequency(m_lines[line_id - 1].get(), frequency);
 }
+// TIA
+void CartridgeKSS::reserve_lines_buffer(int buffer_sample_size)
+{
+	m_lines_buffer.resize(static_cast<size_t>(buffer_sample_size) * m_channels);
+}
 
 int CartridgeKSS::get_playtime_millis(int line_id)
 {

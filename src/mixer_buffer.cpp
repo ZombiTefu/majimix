@@ -173,7 +173,7 @@ void BufferedMixer::write()
 		mix( buffer.begin() + write_position, buffer_packet_sample_size);
 
 		// release lock
-		m.unlock();
+		lkp.unlock(); // m.unlock();
 
 		// Compute the next writing position
 		next = (write_position + buffer_packet_size) % buffer_total_size;
