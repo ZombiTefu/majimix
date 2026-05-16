@@ -117,7 +117,8 @@ struct MixerChannel {
 	
 
 	std::unique_ptr<Sample> sample;
-	int sid; // FIXME atomic ! (cf stop_playback)
+	// TIA
+	std::atomic<int> sid; // int sid; possible mais risqué 
 //	friend class MajimixPa;
 // public:
 
@@ -367,7 +368,10 @@ bool MajimixPa::set_mixer_buffer_parameters(int buffer_count, int buffer_sample_
 
 	mixer->set_mixer_function(std::bind(&MajimixPa::mix, this, std::placeholders::_1, std::placeholders::_2));
 
-	// FIXME:  KSS support -> update buffers size
+	// TIA
+	for (auto &cartridge : kss_cartridges)
+		if (cartridge)
+			cartridge->reserve_lines_buffer(mixer->get_buffer_packet_sample_size());
 
 	return true;
 }
@@ -466,10 +470,14 @@ int MajimixPa::add_source(const std::string& name)
 	if(majimix::wave::test_wave(name))
 	{
 #ifdef MAJIMIX_USE_FLOATING_POINT
+#ifdef DEBUG
 		std::cout << "FLOATING POINT\n";
+#endif
 		auto s = std::make_unique<SourcePCMF>();
 #else
+#ifdef DEBUG
 		std::cout << "FIXED POINT\n";
+#endif
 		auto s = std::make_unique<SourcePCMI>();
 #endif
 		// FIXME: implementer totalement read 
@@ -531,7 +539,9 @@ int MajimixPa::add_source_kss(const std::string& name, int lines, int silent_lim
 		return -1;
 
 	auto cartridge = std::make_unique<kss::CartridgeKSS>(kss, lines, sampling_rate, channels, bits, silent_limit_ms);
-
+	// TIA
+	if (mixer)
+		cartridge->reserve_lines_buffer(mixer->get_buffer_packet_sample_size());
 
 	bool need_resume = mixer && mixer->is_active();
 	if(need_resume)
