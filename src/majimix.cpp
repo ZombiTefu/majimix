@@ -175,11 +175,11 @@ class MajimixPa : public Majimix  {
 	 * @tparam N     2 16 bits 3 24 bits
 	 * @param it_int mixed input buffer
 	 * @param it_out output buffer
-	 * @param sample_count number of samples to convert
+	 * @param vol master volume [0..255]
 	 */
 	template <int N>
-	void encode_Nbits(std::vector<char>::iterator it_out);
-	using fn_encode = std::function<void(std::vector<char>::iterator it_out)>;
+	void encode_Nbits(std::vector<char>::iterator it_out, int vol);
+	using fn_encode = std::function<void(std::vector<char>::iterator it_out, int vol)>;
 	fn_encode encode;
 
 	void mix(std::vector<char>::iterator it_out, int requested_sample_count);
@@ -337,9 +337,9 @@ bool MajimixPa::set_format(int rate, bool stereo, int bits, int channel_count)
 #endif
 
 			if(bits == 16)
-				encode = std::bind(&MajimixPa::encode_Nbits<2>, this, std::placeholders::_1);
+				encode = std::bind(&MajimixPa::encode_Nbits<2>, this, std::placeholders::_1, std::placeholders::_2);
 			else
-				encode = std::bind(&MajimixPa::encode_Nbits<3>, this, std::placeholders::_1);
+				encode = std::bind(&MajimixPa::encode_Nbits<3>, this, std::placeholders::_1, std::placeholders::_2);
 
 			//  high latency : latency = bufsz * 5 * 1000  / 44100 = 100 ms (0.1 sec)
 			// => bufsz = 100 * rate / (buffer_count * 1000)
@@ -1009,11 +1009,8 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 		}
 	}
 
-	// volume adjustment
-	int vol = master_volume; // .load();
-	std::for_each(internal_mix_buffer.begin(), internal_mix_buffer.end(), [&vol](int &n){ n = ((int_fast64_t) n * vol) >> 8; });
-
-	encode(it_out);
+	// Apply master volume and encode in one pass to reduce memory traffic.
+	encode(it_out, master_volume.load());
 }
 
 void MajimixPa::read(char *out_buffer, int requested_sample_count)
@@ -1022,10 +1019,11 @@ void MajimixPa::read(char *out_buffer, int requested_sample_count)
 }
 
 template<int N>
-void MajimixPa::encode_Nbits(std::vector<char>::iterator it_out)
+void MajimixPa::encode_Nbits(std::vector<char>::iterator it_out, int vol)
 {
-	for(const auto &v : internal_mix_buffer)
+	for(const auto &mixed : internal_mix_buffer)
 	{
+		int v = static_cast<int>(((int_fast64_t) mixed * vol) >> 8);
 		*it_out++ = v & 0xFF;
 		*it_out++ = (v >> 8) & 0xFF;
 		if constexpr (N == 3)
