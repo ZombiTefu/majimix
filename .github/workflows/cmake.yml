@@ -21,7 +21,7 @@ jobs:
             build-preset: ci-linux
             build-dir: out/build/ci-linux
             install-dir: out/install/ci-linux
-          - os: windows-latest
+          - os: windows-2022
             preset: ci-windows-msvc
             build-preset: ci-windows-msvc
             build-dir: out/build/ci-windows-msvc
@@ -30,7 +30,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Ubuntu audio backend dependency
       if: runner.os == 'Linux'
