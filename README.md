@@ -120,9 +120,6 @@ For the MinGW preset:
 - MinGW-w64 in PATH
 - The MinGW Makefiles generator requirements available in PATH
 
-Note:
-The Windows presets have been prepared and the build should be functional, but they have not yet been validated locally in this repository.
-
 ### Linux bundled build
 
 Configure:
