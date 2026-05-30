@@ -72,6 +72,10 @@ int main()
 Majimix now defaults to a bundled build: CMake downloads and builds libkss,
 libogg, libvorbis and PortAudio automatically.
 
+Bundled dependencies follow the selected build configuration. The Release and
+MinSizeRel presets therefore build both Majimix and the bundled dependencies in
+the same configuration.
+
 ### General prerequisites
 
 - CMake 3.21 or newer
@@ -142,6 +146,13 @@ Install into the default system prefix:
 sudo cmake --install out/build/linux-release
 ```
 
+Size-optimized MinSizeRel build:
+```sh
+cmake --preset linux-minsizerel
+cmake --build --preset linux-minsizerel
+cmake --install out/build/linux-minsizerel --prefix out/install/linux-minsizerel
+```
+
 ### Windows bundled build with MSVC
 
 Configure:
@@ -159,6 +170,13 @@ Install into a local test prefix:
 cmake --install out/build/windows-msvc-release --config Release --prefix out/install/windows-msvc-release
 ```
 
+Size-optimized MinSizeRel build:
+```powershell
+cmake --preset windows-msvc-minsizerel
+cmake --build --preset windows-msvc-minsizerel
+cmake --install out/build/windows-msvc-minsizerel --config MinSizeRel --prefix out/install/windows-msvc-minsizerel
+```
+
 ### Windows bundled build with MinGW
 
 Configure:
@@ -174,6 +192,13 @@ cmake --build --preset windows-mingw-release
 Install into a local test prefix:
 ```powershell
 cmake --install out/build/windows-mingw-release --prefix out/install/windows-mingw-release
+```
+
+Size-optimized MinSizeRel build:
+```powershell
+cmake --preset windows-mingw-minsizerel
+cmake --build --preset windows-mingw-minsizerel
+cmake --install out/build/windows-mingw-minsizerel --prefix out/install/windows-mingw-minsizerel
 ```
 
 ### Optional system dependencies mode
