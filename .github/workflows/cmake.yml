@@ -61,7 +61,12 @@ jobs:
     - name: Build
       run: cmake --build --preset ${{ matrix.build-preset }} --config ${{ env.BUILD_TYPE }}
 
-    - name: Install
+    - name: Install stripped artifact
+      if: matrix.name != 'windows-msvc'
+      run: cmake --install ${{ matrix.build-dir }} --config ${{ env.BUILD_TYPE }} --prefix ${{ github.workspace }}/${{ matrix.install-dir }} --strip
+
+    - name: Install artifact
+      if: matrix.name == 'windows-msvc'
       run: cmake --install ${{ matrix.build-dir }} --config ${{ env.BUILD_TYPE }} --prefix ${{ github.workspace }}/${{ matrix.install-dir }}
 
     - name: Upload artifact
