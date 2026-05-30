@@ -24,10 +24,29 @@
       }
     },
     {
+      "name": "linux-minsizerel",
+      "inherits": "base",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/linux-minsizerel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel"
+      }
+    },
+    {
       "name": "windows-msvc-release",
       "inherits": "base",
       "generator": "Visual Studio 17 2022",
       "binaryDir": "${sourceDir}/out/build/windows-msvc-release",
+      "architecture": {
+        "strategy": "set",
+        "value": "x64"
+      }
+    },
+    {
+      "name": "windows-msvc-minsizerel",
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022",
+      "binaryDir": "${sourceDir}/out/build/windows-msvc-minsizerel",
       "architecture": {
         "strategy": "set",
         "value": "x64"
@@ -40,6 +59,15 @@
       "binaryDir": "${sourceDir}/out/build/windows-mingw-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-mingw-minsizerel",
+      "inherits": "base",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/out/build/windows-mingw-minsizerel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel"
       }
     },
     {
@@ -59,13 +87,26 @@
       "configurePreset": "linux-release"
     },
     {
+      "name": "linux-minsizerel",
+      "configurePreset": "linux-minsizerel"
+    },
+    {
       "name": "windows-msvc-release",
       "configurePreset": "windows-msvc-release",
       "configuration": "Release"
     },
     {
+      "name": "windows-msvc-minsizerel",
+      "configurePreset": "windows-msvc-minsizerel",
+      "configuration": "MinSizeRel"
+    },
+    {
       "name": "windows-mingw-release",
       "configurePreset": "windows-mingw-release"
+    },
+    {
+      "name": "windows-mingw-minsizerel",
+      "configurePreset": "windows-mingw-minsizerel"
     },
     {
       "name": "ci-linux",
