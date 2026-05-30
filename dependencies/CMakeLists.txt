@@ -1,22 +1,19 @@
 include(FetchContent)
 
-if(NOT DEFINED MAJIMIX_LIBKSS_GIT_TAG)
-  set(MAJIMIX_LIBKSS_GIT_TAG "1.2.1")
-endif()
+macro(majimix_fetchcontent_makeavailable_noinstall dependency_name)
+  set(_majimix_saved_skip_install_rules "${CMAKE_SKIP_INSTALL_RULES}")
+  set(CMAKE_SKIP_INSTALL_RULES ON)
+  FetchContent_MakeAvailable(${dependency_name})
+  set(CMAKE_SKIP_INSTALL_RULES "${_majimix_saved_skip_install_rules}")
+endmacro()
 
 FetchContent_Declare(
   libkss
-  GIT_REPOSITORY "https://github.com/digital-sound-antiques/libkss"
-  GIT_TAG ${MAJIMIX_LIBKSS_GIT_TAG}
+  GIT_REPOSITORY "https://github.com/digital-sound-antiques/libkss.git"
+  GIT_TAG "751cd56267ba4eaca6b0e1b45f9184473620aebe"
+  GIT_PROGRESS TRUE
+  GIT_SUBMODULES_RECURSE TRUE
 )
 
-add_subdirectory(libkss)
-
-#[[
-FetchContent_Declare(
-  PortAudio
-  GIT_REPOSITORY "https://github.com/PortAudio/portaudio"
-  GIT_TAG 147dd722548358763a8b649b3e4b41dfffbcfbb6 # V 19.7.0
-)
-add_subdirectory(portaudio)
-]]
+majimix_fetchcontent_makeavailable_noinstall(libkss)
+file(WRITE "${libkss_BINARY_DIR}/cmake_install.cmake" "")
