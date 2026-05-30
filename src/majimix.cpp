@@ -70,41 +70,6 @@ static int get_handle(int source_id, int channel_id) { return ((channel_id & 0xF
 static int get_kss_source_id(int source_id) { return (source_id | 0x1000) & 0xFFFF; }
 static int get_source_type(int handle_or_source_id) { return (handle_or_source_id >> 12) & 0xF; }
 
-
-
-
-
-
-bool Majimix::start_mixer() 
-{
-	return start_stop_mixer(true);
-}
-
-bool Majimix::stop_mixer() 
-{
-	return start_stop_mixer(false);
-}
-
-bool Majimix::pause_mixer() 
-{
-	return pause_resume_mixer(true);
-}
-
-bool Majimix::resume_mixer() 
-{
-	return pause_resume_mixer(false);
-}
-
-void Majimix::pause_playback(int play_handle)
-{
-	pause_resume_playback(play_handle, true);
-}
-
-void Majimix::resume_playback(int play_handle)
-{
-	pause_resume_playback(play_handle, false);
-}
-
 /**
  * @class MixerChannel
  * @brief
