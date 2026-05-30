@@ -58,9 +58,13 @@ static  int ogg_seek(void* dataSource, ogg_int64_t offset, int origin) {
 
 static long ogg_tell(void* dataSource) {
     std::ifstream& stream = *static_cast<std::ifstream*>(dataSource);
-    const auto position = stream.tellg();
-    assert(position >= 0);
-    return static_cast<long>(position);
+	const std::ifstream::pos_type position = stream.tellg();
+	if (position == std::ifstream::pos_type(-1))
+		return -1;
+
+	const std::streamoff offset = static_cast<std::streamoff>(position);
+	assert(offset >= 0);
+	return static_cast<long>(offset);
 }
 
 bool SourceVorbis::set_file(const std::string& filename)

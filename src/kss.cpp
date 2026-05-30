@@ -29,6 +29,7 @@
 
 #include "kss.hpp"
 
+#include <algorithm>
 #include <iostream>
 #include <fstream>
 

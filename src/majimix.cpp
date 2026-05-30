@@ -32,7 +32,8 @@
  */
 
 
-#include "majimix.hpp"
+#include <algorithm>
+#include <majimix/majimix.hpp>
 #include "wave.hpp"
 // #include <cstring>
 #include <portaudio.h>

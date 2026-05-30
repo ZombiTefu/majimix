@@ -417,11 +417,6 @@ public:
 
 
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 namespace majimix {
 namespace pa {
 
@@ -453,12 +448,7 @@ MAJIMIXAPI std::unique_ptr<Majimix> APIENTRY create_instance();
 
 }
 
-
 }
-
-#ifdef __cplusplus
-} // __cplusplus defined.
-#endif
 
 
 #endif /* MAJIMIX_HPP_ */

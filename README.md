@@ -69,8 +69,131 @@ int main()
 
  ## Build
 
- ### On Linux
- (TODO)
+Majimix now defaults to a bundled build: CMake downloads and builds libkss,
+libogg, libvorbis and PortAudio automatically.
 
- ### On Windows
- (TODO)
+### General prerequisites
+
+- CMake 3.21 or newer
+- A C++17 compiler
+- Internet access for the first configure step, because dependencies are downloaded automatically
+- Git, currently required for libkss because it is fetched with its submodules
+
+### Linux prerequisites
+
+Required:
+- CMake 3.21 or newer
+- Ninja, because the Linux preset uses the Ninja generator
+- GCC or Clang with C++17 support
+- ALSA development headers for PortAudio
+- Git
+
+Examples:
+
+Debian or Ubuntu:
+```sh
+sudo apt-get update
+sudo apt-get install -y cmake ninja-build g++ git libasound2-dev
+```
+
+Fedora:
+```sh
+sudo dnf install cmake ninja-build gcc-c++ git alsa-lib-devel
+```
+
+Arch Linux:
+```sh
+sudo pacman -S cmake ninja gcc git alsa-lib
+```
+
+### Windows prerequisites
+
+Required for every Windows build:
+- CMake 3.21 or newer
+- Git
+- Internet access for the first configure step
+
+For the MSVC preset:
+- Visual Studio 2022 or Build Tools 2022 with the Desktop development with C++ workload
+
+For the MinGW preset:
+- MinGW-w64 in PATH
+- The MinGW Makefiles generator requirements available in PATH
+
+### Linux bundled build
+
+Configure:
+```sh
+cmake --preset linux-release
+```
+
+Build:
+```sh
+cmake --build --preset linux-release
+```
+
+Install into a local test prefix:
+```sh
+cmake --install out/build/linux-release --prefix out/install/linux-release
+```
+
+Install into the default system prefix:
+```sh
+sudo cmake --install out/build/linux-release
+```
+
+### Windows bundled build with MSVC
+
+Configure:
+```powershell
+cmake --preset windows-msvc-release
+```
+
+Build:
+```powershell
+cmake --build --preset windows-msvc-release
+```
+
+Install into a local test prefix:
+```powershell
+cmake --install out/build/windows-msvc-release --config Release --prefix out/install/windows-msvc-release
+```
+
+### Windows bundled build with MinGW
+
+Configure:
+```powershell
+cmake --preset windows-mingw-release
+```
+
+Build:
+```powershell
+cmake --build --preset windows-mingw-release
+```
+
+Install into a local test prefix:
+```powershell
+cmake --install out/build/windows-mingw-release --prefix out/install/windows-mingw-release
+```
+
+### Optional system dependencies mode
+
+If you prefer preinstalled system packages for Ogg, Vorbis and PortAudio,
+you can disable bundled dependencies.
+
+Linux example:
+```sh
+cmake -S . -B out/build/system -G Ninja -DMAJIMIX_USE_BUNDLED_DEPS=OFF
+cmake --build out/build/system
+cmake --install out/build/system --prefix out/install/system
+```
+
+libkss remains bundled in every mode.
+
+### Installed files
+
+The install step provides:
+- the shared library
+- the public header in include/majimix
+- the CMake package files exporting the Majimix::pa target
+- the pkg-config file on Unix platforms

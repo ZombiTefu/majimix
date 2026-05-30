@@ -124,12 +124,16 @@ static bool read_RIFF(std::ifstream &is, pcm_data &audio)
 			// std::cout << " cur pos " << is.tellg() << " - sz "<<chunck_size<< std::endl;
 			if (is.read(&chunck[0], 4) && chunck == "WAVE")
 			{
-				uint32_t position_max = 8 + chunck_size;
+				const std::streamoff position_max = static_cast<std::streamoff>(8) + static_cast<std::streamoff>(chunck_size);
 				bool done = false;
 				bool data_loaded = false;
 				bool fmt_loaded = false;
-				while (!done && (position_max - is.tellg()) > 8 && !err)
+				while (!done && !err)
 				{
+					const std::ifstream::pos_type current_position = is.tellg();
+					if (current_position == std::ifstream::pos_type(-1) || (position_max - static_cast<std::streamoff>(current_position)) <= 8)
+						break;
+
 					if (read_chunck(is, chunck, chunck_size))
 					{
 						if (chunck == "fmt ")
