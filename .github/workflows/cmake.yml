@@ -22,18 +22,21 @@ jobs:
             build-preset: ci-linux
             build-dir: out/build/ci-linux
             install-dir: out/install/ci-linux
+            artifact-name: majimix-linux
           - os: ubuntu-latest
             name: linux-cross-windows-mingw
             preset: ci-linux-cross-windows-mingw
             build-preset: ci-linux-cross-windows-mingw
             build-dir: out/build/ci-linux-cross-windows-mingw
             install-dir: out/install/ci-linux-cross-windows-mingw
+            artifact-name: majimix-linux-cross-windows-mingw
           - os: windows-2022
             name: windows-msvc
             preset: ci-windows-msvc
             build-preset: ci-windows-msvc
             build-dir: out/build/ci-windows-msvc
             install-dir: out/install/ci-windows-msvc
+            artifact-name: majimix-windows-msvc
 
     runs-on: ${{ matrix.os }}
 
@@ -60,4 +63,12 @@ jobs:
 
     - name: Install
       run: cmake --install ${{ matrix.build-dir }} --config ${{ env.BUILD_TYPE }} --prefix ${{ github.workspace }}/${{ matrix.install-dir }}
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact-name }}
+        path: ${{ github.workspace }}/${{ matrix.install-dir }}
+        if-no-files-found: error
+        retention-days: 14
       
