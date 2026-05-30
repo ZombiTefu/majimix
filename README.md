@@ -76,6 +76,9 @@ Bundled dependencies follow the selected build configuration. The Release and
 MinSizeRel presets therefore build both Majimix and the bundled dependencies in
 the same configuration.
 
+An experimental Linux to Windows cross-compilation flow using MinGW-w64 is also
+available. It is intended for generating Windows DLL artifacts from a Linux host.
+
 ### General prerequisites
 
 - CMake 3.21 or newer
@@ -200,6 +203,36 @@ cmake --preset windows-mingw-minsizerel
 cmake --build --preset windows-mingw-minsizerel
 cmake --install out/build/windows-mingw-minsizerel --prefix out/install/windows-mingw-minsizerel
 ```
+
+### Experimental Linux to Windows cross-compilation with MinGW-w64
+
+Required on the Linux host:
+- Ninja
+- MinGW-w64 cross-compilers in PATH
+- `x86_64-w64-mingw32-gcc`, `x86_64-w64-mingw32-g++`, and `x86_64-w64-mingw32-windres`
+
+Example on Debian or Ubuntu:
+```sh
+sudo apt-get update
+sudo apt-get install -y cmake ninja-build gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+```
+
+Release build:
+```sh
+cmake --preset linux-cross-windows-mingw-release
+cmake --build --preset linux-cross-windows-mingw-release
+cmake --install out/build/linux-cross-windows-mingw-release --prefix out/install/linux-cross-windows-mingw-release
+```
+
+Size-optimized MinSizeRel build:
+```sh
+cmake --preset linux-cross-windows-mingw-minsizerel
+cmake --build --preset linux-cross-windows-mingw-minsizerel
+cmake --install out/build/linux-cross-windows-mingw-minsizerel --prefix out/install/linux-cross-windows-mingw-minsizerel
+```
+
+This flow is experimental, but it has been locally validated for configure,
+build, and install with bundled dependencies.
 
 ### Optional system dependencies mode
 

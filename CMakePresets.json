@@ -33,6 +33,31 @@
       }
     },
     {
+      "name": "linux-cross-windows-mingw-base",
+      "hidden": true,
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake/linux-mingw64-toolchain.cmake"
+      }
+    },
+    {
+      "name": "linux-cross-windows-mingw-release",
+      "inherits": "linux-cross-windows-mingw-base",
+      "binaryDir": "${sourceDir}/out/build/linux-cross-windows-mingw-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "linux-cross-windows-mingw-minsizerel",
+      "inherits": "linux-cross-windows-mingw-base",
+      "binaryDir": "${sourceDir}/out/build/linux-cross-windows-mingw-minsizerel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "MinSizeRel"
+      }
+    },
+    {
       "name": "windows-msvc-release",
       "inherits": "base",
       "generator": "Visual Studio 17 2022",
@@ -76,6 +101,11 @@
       "binaryDir": "${sourceDir}/out/build/ci-linux"
     },
     {
+      "name": "ci-linux-cross-windows-mingw",
+      "inherits": "linux-cross-windows-mingw-release",
+      "binaryDir": "${sourceDir}/out/build/ci-linux-cross-windows-mingw"
+    },
+    {
       "name": "ci-windows-msvc",
       "inherits": "windows-msvc-release",
       "binaryDir": "${sourceDir}/out/build/ci-windows-msvc"
@@ -89,6 +119,14 @@
     {
       "name": "linux-minsizerel",
       "configurePreset": "linux-minsizerel"
+    },
+    {
+      "name": "linux-cross-windows-mingw-release",
+      "configurePreset": "linux-cross-windows-mingw-release"
+    },
+    {
+      "name": "linux-cross-windows-mingw-minsizerel",
+      "configurePreset": "linux-cross-windows-mingw-minsizerel"
     },
     {
       "name": "windows-msvc-release",
@@ -111,6 +149,10 @@
     {
       "name": "ci-linux",
       "configurePreset": "ci-linux"
+    },
+    {
+      "name": "ci-linux-cross-windows-mingw",
+      "configurePreset": "ci-linux-cross-windows-mingw"
     },
     {
       "name": "ci-windows-msvc",
