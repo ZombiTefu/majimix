@@ -225,8 +225,8 @@ public:
 	 * @return false A problem occurred and the operation could not be completed.
 	 */
 	virtual bool start_stop_mixer(bool start) = 0;
-	bool start_mixer();
-	bool stop_mixer();
+	bool start_mixer() { return start_stop_mixer(true); }
+	bool stop_mixer() { return start_stop_mixer(false); }
 	
 
 	/**
@@ -237,8 +237,8 @@ public:
 	 * @return false 
 	 */
 	virtual bool pause_resume_mixer(bool pause) = 0;
-	bool pause_mixer();
-	bool resume_mixer();
+	bool pause_mixer() { return pause_resume_mixer(true); }
+	bool resume_mixer() { return pause_resume_mixer(false); }
 
 	/**
 	 * @brief Get the mixer status
@@ -364,8 +364,8 @@ public:
 	 * @param pause 
 	 */
 	virtual void pause_resume_playback(int play_handle, bool pause) = 0;
-	void pause_playback(int play_handle);
-	void resume_playback(int play_handle);
+	void pause_playback(int play_handle) { pause_resume_playback(play_handle, true); }
+	void resume_playback(int play_handle) { pause_resume_playback(play_handle, false); }
 
 
 	/**
