@@ -159,6 +159,27 @@ constexpr int MixerStopped =  0;
 constexpr int MixerPaused  =  1;
 constexpr int MixerRunning =  2;
 
+enum class PlaybackEventType {
+	Loop,
+	Stop
+};
+
+enum class PlaybackStopReason {
+	EndOfStream,
+	ExplicitStop,
+	SourceDropped
+};
+
+struct PlaybackEvent {
+	PlaybackEventType type = PlaybackEventType::Stop;
+	int play_handle = 0;
+	int source_handle = 0;
+	int loop_count = 0;
+	PlaybackStopReason stop_reason = PlaybackStopReason::EndOfStream;
+};
+
+using PlaybackEventCallback = void (*)(const PlaybackEvent& event, void *user_data);
+
 
 
 class Majimix {
@@ -384,6 +405,19 @@ public:
 	 * @param [in] loop loop mode : if true the sound will be played continuously, if false the sound the sound will automatically stop at the end and the channel will be released.
 	 */
 	virtual void set_loop(int play_handle, bool loop) = 0;
+
+	/**
+	 * @brief Register or unregister the playback event callback.
+	 *
+	 * The callback is optional. Passing a null callback unregisters the current callback.
+	 * The callback can be invoked from the mixing thread and must therefore remain non-blocking.
+	 * Some stop events can also be emitted synchronously from the calling thread when the mixing thread is not available.
+	 * For a Loop event, only loop_count is meaningful. For a Stop event, only stop_reason is meaningful.
+	 *
+	 * @param [in] callback callback function or null to disable notifications.
+	 * @param [in] user_data opaque user pointer passed back to the callback.
+	 */
+	virtual void set_playback_event_callback(PlaybackEventCallback callback, void *user_data = nullptr) = 0;
 
 
 	/**

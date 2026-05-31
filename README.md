@@ -60,6 +60,69 @@ int main()
 }
  ```
 
+## Playback event callback example
+
+```cpp
+#include <iostream>
+#include <majimix/majimix.hpp>
+
+void on_playback_event(const majimix::PlaybackEvent& event, void *user_data)
+{
+    const char *label = static_cast<const char *>(user_data);
+    std::cout << label << " play_handle=" << event.play_handle;
+
+    if (event.type == majimix::PlaybackEventType::Loop)
+    {
+        std::cout << " loop x" << event.loop_count << "\n";
+        return;
+    }
+
+    std::cout << " stop";
+    switch (event.stop_reason)
+    {
+    case majimix::PlaybackStopReason::EndOfStream:
+        std::cout << " (end of stream)";
+        break;
+    case majimix::PlaybackStopReason::ExplicitStop:
+        std::cout << " (explicit stop)";
+        break;
+    case majimix::PlaybackStopReason::SourceDropped:
+        std::cout << " (source dropped)";
+        break;
+    }
+    std::cout << "\n";
+}
+
+int main()
+{
+    majimix::pa::initialize();
+
+    auto majimix_ptr = majimix::pa::create_instance();
+    majimix_ptr->set_playback_event_callback(&on_playback_event, (void *)"[majimix]");
+
+    if (majimix_ptr->set_format(44100, true, 16, 10))
+    {
+        int source_handle = majimix_ptr->add_source("bgm.ogg");
+        if (source_handle && majimix_ptr->start_mixer())
+        {
+            int play_handle = majimix_ptr->play_source(source_handle, true);
+            std::cout << "play_handle=" << play_handle << "\n";
+
+            // ... your application loop ...
+
+            majimix_ptr->stop_playback(play_handle);
+            majimix_ptr->stop_mixer();
+        }
+    }
+
+    majimix_ptr->set_playback_event_callback(nullptr);
+    majimix::pa::terminate();
+    return 0;
+}
+```
+
+The playback event callback is optional. When registered, it should remain lightweight and non-blocking because loop notifications and natural stop notifications are emitted from the mixing thread.
+
  ## Dependencies
 
  Majimix uses the following libraries:<br>
