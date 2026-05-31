@@ -123,6 +123,74 @@ int main()
 
 The playback event callback is optional. When registered, it should remain lightweight and non-blocking because loop notifications and natural stop notifications are emitted from the mixing thread.
 
+## Effects example
+
+```cpp
+#include <chrono>
+#include <memory>
+#include <thread>
+#include <majimix/majimix.hpp>
+#include <majimix/effects.hpp>
+
+int main()
+{
+    majimix::pa::initialize();
+
+    auto majimix_ptr = majimix::pa::create_instance();
+    if (majimix_ptr->set_format(44100, true, 16, 10))
+    {
+        int source_handle = majimix_ptr->add_source("bgm.ogg");
+        if (source_handle && majimix_ptr->start_mixer())
+        {
+            auto master_gain = std::make_shared<majimix::GainEffect>(0.8f);
+            auto fade = std::make_shared<majimix::FadeEffect>(0.0f);
+
+            majimix_ptr->add_master_effect(master_gain);
+
+            int play_handle = majimix_ptr->play_source(source_handle, false, true);
+            majimix_ptr->add_playback_effect(play_handle, fade);
+
+            // Start silently, then fade in once the playback is resumed.
+            fade->fade_in(800);
+            majimix_ptr->resume_playback(play_handle);
+
+            std::this_thread::sleep_for(std::chrono::seconds(4));
+
+            master_gain->set_gain(0.6f);
+
+            // Fade out before stopping the playback.
+            fade->fade_out(1500);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+            majimix_ptr->stop_playback(play_handle);
+
+            // ... your application loop ...
+
+            majimix_ptr->stop_mixer();
+        }
+    }
+
+    majimix::pa::terminate();
+    return 0;
+}
+```
+
+Effects are processed in insertion order.
+
+- Master effects are applied to the full mixed signal.
+- Playback effects are applied to a single regular playback handle returned by play_source.
+- AudioEffect and built-in effects are declared in <majimix/effects.hpp>.
+- GainEffect applies a constant gain multiplier.
+- FadeEffect performs a linear fade toward a target gain over a duration expressed in milliseconds.
+- FadeEffect also provides the convenience helpers fade_in and fade_out.
+- ReverbEffect adds a simple room reverb controlled by room_size, damping, wet, dry and width.
+- VibratoEffect adds a pure modulated delay controlled by delay_ms, depth_ms, rate_hz and stereo_phase_deg.
+- ChorusEffect adds a modulated short delay with delay_ms, depth_ms, rate_hz, mix, stereo_phase_deg and optional feedback.
+- FlangerEffect adds a shorter modulated delay with dry/wet mix and a stronger signed feedback range than ChorusEffect.
+- Example programs are available in examples/fade_playback.cpp, examples/reverb_playback.cpp, examples/flanger_playback.cpp, examples/vibrato_playback.cpp and examples/chorus_playback.cpp.
+- The example executables expect the audio file path as their first command-line argument.
+- You can implement custom effects by deriving from AudioEffect and overriding process.
+- The same effect instance should not be attached to multiple chains at the same time.
+
  ## Dependencies
 
  Majimix uses the following libraries:<br>

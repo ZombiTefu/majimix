@@ -34,6 +34,7 @@
 
 #include <algorithm>
 #include <majimix/majimix.hpp>
+#include <majimix/effects.hpp>
 #include "wave.hpp"
 // #include <cstring>
 #include <portaudio.h>
@@ -135,10 +136,21 @@ class MajimixPa : public Majimix  {
 	std::atomic<unsigned int> playback_callback_version {0};
 	std::atomic<PlaybackEventCallback> playback_callback {nullptr};
 	std::atomic<void *> playback_callback_user_data {nullptr};
+	struct EffectChainEntry {
+		EffectHandle handle = InvalidEffectHandle;
+		std::shared_ptr<AudioEffect> effect;
+	};
+	using EffectChain = std::vector<EffectChainEntry>;
+	std::mutex effects_mutex;
+	EffectHandle next_effect_handle = InvalidEffectHandle + 1;
+	EffectChain master_effect_chain;
+	std::vector<EffectChain> playback_effect_chains;
 
 	/* internal mixing data */
 	std::vector<int32_t> internal_mix_buffer;
 	std::vector<int32_t> internal_sample_buffer;
+	std::vector<float> internal_float_mix_buffer;
+	std::vector<float> internal_float_sample_buffer;
 
 	/* audio converter */
 
@@ -152,6 +164,19 @@ class MajimixPa : public Majimix  {
 	void encode_Nbits(std::vector<char>::iterator it_out, int vol);
 	using fn_encode = std::function<void(std::vector<char>::iterator it_out, int vol)>;
 	fn_encode encode;
+	EffectHandle allocate_effect_handle_locked();
+	int get_playback_effect_chain_index(int play_handle) const;
+	bool is_effect_instance_attached_locked(const std::shared_ptr<AudioEffect>& effect) const;
+	void prepare_effect(AudioEffect &effect) const;
+	void prepare_master_effects();
+	void reset_effect_chain(EffectChain &chain);
+	void clear_playback_effect_chain_locked(int channel_index);
+	void clear_playback_effect_chain(int channel_index);
+	void clear_all_playback_effects_locked();
+	void apply_effect_chain(const EffectChain &chain, float *samples, int frame_count);
+	void convert_int_buffer_to_float(const int32_t *input, float *output, int sample_count) const;
+	void accumulate_int_buffer_to_float(const int32_t *input, float *output, int sample_count) const;
+	void convert_float_buffer_to_int(const float *input, int32_t *output, int sample_count) const;
 
 	bool get_playback_event_callback(PlaybackEventCallback &callback, void *&user_data) const;
 	void emit_playback_event(const PlaybackEvent &event) const;
@@ -253,6 +278,11 @@ public:
 	void stop_playback(int play_handle) override;
 	void set_loop(int play_handle, bool loop) override;
 	void set_playback_event_callback(PlaybackEventCallback callback, void *user_data = nullptr) override;
+	EffectHandle add_master_effect(const std::shared_ptr<AudioEffect>& effect) override;
+	EffectHandle add_playback_effect(int play_handle, const std::shared_ptr<AudioEffect>& effect) override;
+	bool remove_effect(EffectHandle effect_handle) override;
+	void clear_master_effects() override;
+	void clear_playback_effects(int play_handle) override;
     void pause_resume_playback(int play_handle, bool pause) override;
 
 	void pause_producer(bool);
@@ -298,6 +328,12 @@ bool MajimixPa::set_format(int rate, bool stereo, int bits, int channel_count)
 			sampling_rate = rate;
 			channels      = stereo ? 2 : 1;
 			this->bits    = bits;
+			{
+				std::lock_guard<std::mutex> lock(effects_mutex);
+				clear_all_playback_effects_locked();
+				playback_effect_chains.clear();
+				playback_effect_chains.resize(static_cast<size_t>(channel_count));
+			}
 			mixer_channels.clear();
 			mixer_channels.reserve(channel_count);
 			for(int i = 0; i < channel_count; ++i)
@@ -329,6 +365,8 @@ bool MajimixPa::set_format(int rate, bool stereo, int bits, int channel_count)
 				buffer_sample_size = mixer->get_buffer_packet_sample_size();
 			}
 
+			prepare_master_effects();
+
 			return set_mixer_buffer_parameters(buffer_count, buffer_sample_size);
 		}
 	}
@@ -343,6 +381,13 @@ bool MajimixPa::set_mixer_buffer_parameters(int buffer_count, int buffer_sample_
 	size_t buffer_size = static_cast<long>(mixer->get_buffer_packet_sample_size()) * channels;
 	internal_sample_buffer.assign(buffer_size, 0);
 	internal_mix_buffer.assign(buffer_size, 0);
+	internal_float_sample_buffer.assign(buffer_size, 0.0f);
+	internal_float_mix_buffer.assign(buffer_size, 0.0f);
+	{
+		std::lock_guard<std::mutex> lock(effects_mutex);
+		if(playback_effect_chains.size() != mixer_channels.size())
+			playback_effect_chains.resize(mixer_channels.size());
+	}
 
 	mixer->set_mixer_function(std::bind(&MajimixPa::mix, this, std::placeholders::_1, std::placeholders::_2));
 
@@ -352,6 +397,146 @@ bool MajimixPa::set_mixer_buffer_parameters(int buffer_count, int buffer_sample_
 			cartridge->reserve_lines_buffer(mixer->get_buffer_packet_sample_size());
 
 	return true;
+}
+
+EffectHandle MajimixPa::allocate_effect_handle_locked()
+{
+	if(next_effect_handle <= InvalidEffectHandle)
+		next_effect_handle = InvalidEffectHandle + 1;
+	return next_effect_handle++;
+}
+
+int MajimixPa::get_playback_effect_chain_index(int play_handle) const
+{
+	if(get_source_type(play_handle) != 0)
+		return -1;
+
+	const unsigned int source_id = get_source_id(play_handle);
+	const unsigned int channel_id = get_channel_id(play_handle);
+	if(source_id == 0 || channel_id == 0 || channel_id > mixer_channels.size())
+		return -1;
+
+	const auto &channel = mixer_channels[channel_id - 1];
+	if(!channel->active.load(std::memory_order_acquire) || channel->stopped.load(std::memory_order_acquire))
+		return -1;
+	if(channel->sid.load(std::memory_order_acquire) != static_cast<int>(source_id))
+		return -1;
+	if(channel_id - 1 >= playback_effect_chains.size())
+		return -1;
+
+	return static_cast<int>(channel_id) - 1;
+}
+
+bool MajimixPa::is_effect_instance_attached_locked(const std::shared_ptr<AudioEffect>& effect) const
+{
+	if(!effect)
+		return false;
+
+	for(const auto &entry : master_effect_chain)
+		if(entry.effect == effect)
+			return true;
+
+	for(const auto &chain : playback_effect_chains)
+		for(const auto &entry : chain)
+			if(entry.effect == effect)
+				return true;
+
+	return false;
+}
+
+void MajimixPa::prepare_effect(AudioEffect &effect) const
+{
+	effect.prepare(sampling_rate, channels);
+	effect.reset();
+}
+
+void MajimixPa::prepare_master_effects()
+{
+	std::lock_guard<std::mutex> lock(effects_mutex);
+	for(auto &entry : master_effect_chain)
+		if(entry.effect)
+			prepare_effect(*entry.effect);
+}
+
+void MajimixPa::reset_effect_chain(EffectChain &chain)
+{
+	for(auto &entry : chain)
+		if(entry.effect)
+			entry.effect->reset();
+}
+
+void MajimixPa::clear_playback_effect_chain_locked(int channel_index)
+{
+	if(channel_index < 0 || channel_index >= static_cast<int>(playback_effect_chains.size()))
+		return;
+
+	reset_effect_chain(playback_effect_chains[channel_index]);
+	playback_effect_chains[channel_index].clear();
+}
+
+void MajimixPa::clear_playback_effect_chain(int channel_index)
+{
+	std::lock_guard<std::mutex> lock(effects_mutex);
+	clear_playback_effect_chain_locked(channel_index);
+}
+
+void MajimixPa::clear_all_playback_effects_locked()
+{
+	for(auto &chain : playback_effect_chains)
+	{
+		reset_effect_chain(chain);
+		chain.clear();
+	}
+}
+
+void MajimixPa::apply_effect_chain(const EffectChain &chain, float *samples, int frame_count)
+{
+	if(!samples || frame_count <= 0)
+		return;
+
+	for(const auto &entry : chain)
+		if(entry.effect)
+			entry.effect->process(samples, frame_count);
+}
+
+void MajimixPa::convert_int_buffer_to_float(const int32_t *input, float *output, int sample_count) const
+{
+	if(!input || !output || sample_count <= 0)
+		return;
+
+	const float scale = bits == 24 ? (1.0f / 8388608.0f) : (1.0f / 32768.0f);
+	for(int i = 0; i < sample_count; ++i)
+		output[i] = static_cast<float>(input[i]) * scale;
+}
+
+void MajimixPa::accumulate_int_buffer_to_float(const int32_t *input, float *output, int sample_count) const
+{
+	if(!input || !output || sample_count <= 0)
+		return;
+
+	const float scale = bits == 24 ? (1.0f / 8388608.0f) : (1.0f / 32768.0f);
+	for(int i = 0; i < sample_count; ++i)
+		output[i] += static_cast<float>(input[i]) * scale;
+}
+
+void MajimixPa::convert_float_buffer_to_int(const float *input, int32_t *output, int sample_count) const
+{
+	if(!input || !output || sample_count <= 0)
+		return;
+
+	const float scale = bits == 24 ? 8388608.0f : 32768.0f;
+	const int32_t min_value = bits == 24 ? -(1 << 23) : -(1 << 15);
+	const int32_t max_value = bits == 24 ? ((1 << 23) - 1) : ((1 << 15) - 1);
+	for(int i = 0; i < sample_count; ++i)
+	{
+		const float scaled = input[i] * scale;
+		if(scaled <= static_cast<float>(min_value))
+			output[i] = min_value;
+		else if(scaled >= static_cast<float>(max_value))
+			output[i] = max_value;
+		else
+			output[i] = static_cast<int32_t>(scaled);
+	}
 }
 
 bool MajimixPa::get_playback_event_callback(PlaybackEventCallback &callback, void *&user_data) const
@@ -414,6 +599,7 @@ void MajimixPa::drop_regular_channel(MixerChannel &channel, int channel_id, Play
 	const int source_id = channel.sid.load(std::memory_order_acquire);
 	if(was_active)
 		emit_stop_event(source_id, channel_id, reason);
+	clear_playback_effect_chain(channel_id - 1);
 
 	channel.stopped = true;
 	channel.paused = false;
@@ -713,6 +899,7 @@ int MajimixPa::play_source(int source_handle, bool loop, bool paused)
 			++pid;
 			if(!mix_channel->active)
 			{
+				clear_playback_effect_chain(pid - 1);
 				if(mix_channel->sid != source_id)
 				{
 					mix_channel->sid     = source_id;
@@ -737,7 +924,7 @@ int MajimixPa::play_source(int source_handle, bool loop, bool paused)
 
 int MajimixPa::play_kss_track(int kss_source_handle, int track, bool autostop, bool forcable, bool force)
 {
-	return kss_cartridge_action<int>(kss_source_handle, false, false, 0, [&](kss::CartridgeKSS &cartridge, int line_id) -> int {
+	return kss_cartridge_action<int>(kss_source_handle, false, false, 0, [&](kss::CartridgeKSS &cartridge, int) -> int {
 		int id = cartridge.active_line(track, autostop, forcable);
 		if(!id && force)
 		{
@@ -792,6 +979,7 @@ void MajimixPa::stop_playback(int play_handle)
 					emit_stop_event(source_id, channel_id, PlaybackStopReason::ExplicitStop);
 					mix_channel->loop = false;   // XXX needed ?
 					mix_channel->active = false; // XXX needed ?
+					clear_playback_effect_chain(channel_id - 1);
 					mix_channel->stop_reason = PlaybackStopReason::EndOfStream;
 				}
 			}
@@ -835,7 +1023,8 @@ void MajimixPa::stop_playback(int play_handle)
 					if(!m_stream) 
 					{
 						emit_stop_event(static_cast<int>(source_id), static_cast<int>(channel_id), PlaybackStopReason::ExplicitStop);
-							channel->active = false;
+						channel->active = false;
+						clear_playback_effect_chain(static_cast<int>(channel_id) - 1);
 						channel->stop_reason = PlaybackStopReason::EndOfStream;
 					}
 				}
@@ -854,6 +1043,7 @@ void MajimixPa::stop_playback(int play_handle)
 						{
 							emit_stop_event(static_cast<int>(source_id), current_channel_id, PlaybackStopReason::ExplicitStop);
 							channel->active = false;
+							clear_playback_effect_chain(current_channel_id - 1);
 							channel->stop_reason = PlaybackStopReason::EndOfStream;
 						}
 					}
@@ -912,6 +1102,81 @@ void MajimixPa::set_playback_event_callback(PlaybackEventCallback callback, void
 	playback_callback.store(callback, std::memory_order_release);
 	playback_callback_user_data.store(user_data, std::memory_order_release);
 	playback_callback_version.fetch_add(1, std::memory_order_acq_rel);
+}
+
+EffectHandle MajimixPa::add_master_effect(const std::shared_ptr<AudioEffect>& effect)
+{
+	if(!effect)
+		return InvalidEffectHandle;
+
+	std::lock_guard<std::mutex> lock(effects_mutex);
+	if(is_effect_instance_attached_locked(effect))
+		return InvalidEffectHandle;
+
+	prepare_effect(*effect);
+	const EffectHandle effect_handle = allocate_effect_handle_locked();
+	master_effect_chain.push_back({effect_handle, effect});
+	return effect_handle;
+}
+
+EffectHandle MajimixPa::add_playback_effect(int play_handle, const std::shared_ptr<AudioEffect>& effect)
+{
+	if(!effect)
+		return InvalidEffectHandle;
+
+	std::lock_guard<std::mutex> lock(effects_mutex);
+	const int chain_index = get_playback_effect_chain_index(play_handle);
+	if(chain_index < 0 || is_effect_instance_attached_locked(effect))
+		return InvalidEffectHandle;
+
+	prepare_effect(*effect);
+	const EffectHandle effect_handle = allocate_effect_handle_locked();
+	playback_effect_chains[chain_index].push_back({effect_handle, effect});
+	return effect_handle;
+}
+
+bool MajimixPa::remove_effect(EffectHandle effect_handle)
+{
+	if(effect_handle == InvalidEffectHandle)
+		return false;
+
+	auto remove_from_chain = [&](EffectChain &chain) -> bool {
+		auto it = std::find_if(chain.begin(), chain.end(), [effect_handle](const EffectChainEntry &entry) {
+			return entry.handle == effect_handle;
+		});
+		if(it == chain.end())
+			return false;
+
+		if(it->effect)
+			it->effect->reset();
+		chain.erase(it);
+		return true;
+	};
+
+	std::lock_guard<std::mutex> lock(effects_mutex);
+	if(remove_from_chain(master_effect_chain))
+		return true;
+
+	for(auto &chain : playback_effect_chains)
+		if(remove_from_chain(chain))
+			return true;
+
+	return false;
+}
+
+void MajimixPa::clear_master_effects()
+{
+	std::lock_guard<std::mutex> lock(effects_mutex);
+	reset_effect_chain(master_effect_chain);
+	master_effect_chain.clear();
+}
+
+void MajimixPa::clear_playback_effects(int play_handle)
+{
+	std::lock_guard<std::mutex> lock(effects_mutex);
+	const int chain_index = get_playback_effect_chain_index(play_handle);
+	if(chain_index >= 0)
+		clear_playback_effect_chain_locked(chain_index);
 }
 
 
@@ -1028,10 +1293,11 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 	//auto it_begin = it_out;
 	int sample_count;
 	bool deactivate;
-	bool mix_buffer_has_data = false;
 	int channel_id = 0;
+	const int requested_data_count = requested_sample_count * channels;
 
 	std::fill(internal_mix_buffer.begin(), internal_mix_buffer.end(), 0);
+	std::fill(internal_float_mix_buffer.begin(), internal_float_mix_buffer.end(), 0.0f);
 
 	for(auto& mix_channel : mixer_channels)
 	{
@@ -1041,22 +1307,21 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 			const int source_id = mix_channel->sid.load(std::memory_order_acquire);
 			int loop_count = 0;
 			sample_count = 0;
-			deactivate =  false;
+			deactivate = false;
 			if(mix_channel->stopped || !mix_channel->sample)
 			{
 				deactivate = true;
 			}
 			else if(!mix_channel->paused)
 			{
-				int *target_buffer = mix_buffer_has_data ? internal_sample_buffer.data() : internal_mix_buffer.data();
-				sample_count = mix_channel->sample->read(target_buffer, requested_sample_count);
+				sample_count = mix_channel->sample->read(internal_sample_buffer.data(), requested_sample_count);
 				if(mix_channel->loop && sample_count < requested_sample_count)
 				{
 					while(sample_count < requested_sample_count)
 					{
-						// EOF - AUTOLOOP 
+						// EOF - AUTOLOOP
 						long idx = static_cast<long>(sample_count) * channels;
-						int loop_sample_count = mix_channel->sample->read(target_buffer + idx, requested_sample_count - sample_count);
+						int loop_sample_count = mix_channel->sample->read(internal_sample_buffer.data() + idx, requested_sample_count - sample_count);
 						if(loop_sample_count <= 0)
 							break;
 						sample_count += loop_sample_count;
@@ -1069,24 +1334,25 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 
 				if(sample_count)
 				{
-					if(mix_buffer_has_data)
+					const int mixed_sample_count = sample_count * channels;
+					convert_int_buffer_to_float(internal_sample_buffer.data(), internal_float_sample_buffer.data(), mixed_sample_count);
 					{
-						std::transform(internal_sample_buffer.begin(), internal_sample_buffer.begin() + static_cast<long>(sample_count) * channels, internal_mix_buffer.begin(), internal_mix_buffer.begin(), std::plus<int>());
+						std::lock_guard<std::mutex> lock(effects_mutex);
+						if(channel_id - 1 < static_cast<int>(playback_effect_chains.size()))
+							apply_effect_chain(playback_effect_chains[channel_id - 1], internal_float_sample_buffer.data(), sample_count);
 					}
-					else
-					{
-						mix_buffer_has_data = true;
-					}
+					std::transform(internal_float_sample_buffer.begin(), internal_float_sample_buffer.begin() + mixed_sample_count, internal_float_mix_buffer.begin(), internal_float_mix_buffer.begin(), std::plus<float>());
 				}
+
 				if(sample_count < requested_sample_count)
-				{
 					deactivate = true;
-				}
 			}
+
 			if(deactivate)
 			{
 				const PlaybackStopReason stop_reason = mix_channel->stop_reason.load(std::memory_order_acquire);
 				emit_stop_event(source_id, channel_id, stop_reason);
+				clear_playback_effect_chain(channel_id - 1);
 				mix_channel->stopped = true;
 				mix_channel->active = false;
 				mix_channel->stop_reason = PlaybackStopReason::EndOfStream;
@@ -1095,14 +1361,22 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 	}
 
 	// kss support
-
 	for(auto &ck : kss_cartridges)
 	{
 		if(ck)
 		{
-			ck->read(internal_mix_buffer.begin(), requested_sample_count);
+			std::fill(internal_sample_buffer.begin(), internal_sample_buffer.begin() + requested_data_count, 0);
+			ck->read(internal_sample_buffer.begin(), requested_sample_count);
+			accumulate_int_buffer_to_float(internal_sample_buffer.data(), internal_float_mix_buffer.data(), requested_data_count);
 		}
 	}
+
+	{
+		std::lock_guard<std::mutex> lock(effects_mutex);
+		apply_effect_chain(master_effect_chain, internal_float_mix_buffer.data(), requested_sample_count);
+	}
+
+	convert_float_buffer_to_int(internal_float_mix_buffer.data(), internal_mix_buffer.data(), requested_data_count);
 
 	// Apply master volume and encode in one pass to reduce memory traffic.
 	encode(it_out, master_volume.load());
@@ -1131,10 +1405,10 @@ void MajimixPa::encode_Nbits(std::vector<char>::iterator it_out, int vol)
 ** It may called at interrupt level on some machines so don't do anything
 ** that could mess up the system like calling malloc() or free().
  */
-int MajimixPa::paCallback(const void *input_buffer, void *output_buffer,
+int MajimixPa::paCallback(const void *, void *output_buffer,
 						   unsigned long frames_per_buffer,
-						   const PaStreamCallbackTimeInfo* timeInfo,
-						   PaStreamCallbackFlags statusFlags,
+					   const PaStreamCallbackTimeInfo*,
+					   PaStreamCallbackFlags,
 						   void *userData ) {
 //	static_cast<MajimixPa*>(userData)->read((char *) output_buffer, frames_per_buffer);
 	reinterpret_cast<MajimixPa*>(userData)->read((char *) output_buffer, frames_per_buffer);
@@ -1215,7 +1489,7 @@ bool MajimixPa::update_kss_frequency(int kss_handle, int frequency)
 
 int MajimixPa::get_kss_active_lines_count(int kss_source_handle)
 {
-	 return kss_cartridge_action<int>(kss_source_handle, false, false, 0, [](kss::CartridgeKSS& cartridge, int line_id) -> int 
+	 return kss_cartridge_action<int>(kss_source_handle, false, false, 0, [](kss::CartridgeKSS& cartridge, int) -> int 
 	 {
 		int nb = 0;
 		for(auto &l : cartridge)
