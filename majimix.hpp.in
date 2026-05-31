@@ -180,6 +180,10 @@ struct PlaybackEvent {
 
 using PlaybackEventCallback = void (*)(const PlaybackEvent& event, void *user_data);
 
+using EffectHandle = int;
+constexpr EffectHandle InvalidEffectHandle = 0;
+class AudioEffect;
+
 
 
 class Majimix {
@@ -418,6 +422,52 @@ public:
 	 * @param [in] user_data opaque user pointer passed back to the callback.
 	 */
 	virtual void set_playback_event_callback(PlaybackEventCallback callback, void *user_data = nullptr) = 0;
+
+
+	/* ---------------- EFFECTS -------------------*/
+
+	/**
+	 * @brief Add an effect to the master processing chain.
+	 *
+	 * Effects are executed in insertion order. The same effect instance should not be attached
+	 * to multiple chains at the same time.
+	 *
+	 * @param [in] effect effect instance to attach
+	 * @return EffectHandle unique effect handle or InvalidEffectHandle on failure
+	 */
+	virtual EffectHandle add_master_effect(const std::shared_ptr<AudioEffect>& effect) = 0;
+
+	/**
+	 * @brief Add an effect to a playback processing chain.
+	 *
+	 * The playback handle must be a valid handle returned by play_source.
+	 * Effects are executed in insertion order.
+	 *
+	 * @param [in] play_handle playback handle returned by play_source
+	 * @param [in] effect effect instance to attach
+	 * @return EffectHandle unique effect handle or InvalidEffectHandle on failure
+	 */
+	virtual EffectHandle add_playback_effect(int play_handle, const std::shared_ptr<AudioEffect>& effect) = 0;
+
+	/**
+	 * @brief Remove a previously added effect from its chain.
+	 *
+	 * @param [in] effect_handle effect handle returned by add_master_effect or add_playback_effect
+	 * @return True if an effect was removed, false otherwise
+	 */
+	virtual bool remove_effect(EffectHandle effect_handle) = 0;
+
+	/**
+	 * @brief Remove every effect from the master processing chain.
+	 */
+	virtual void clear_master_effects() = 0;
+
+	/**
+	 * @brief Remove every effect from a playback processing chain.
+	 *
+	 * @param [in] play_handle playback handle returned by play_source
+	 */
+	virtual void clear_playback_effects(int play_handle) = 0;
 
 
 	/**

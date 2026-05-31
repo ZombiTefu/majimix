@@ -8,12 +8,14 @@ project(majimix VERSION 0.5 DESCRIPTION "Simple audio mixer" LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+include(CTest)
 
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
 option(MAJIMIX_USE_BUNDLED_DEPS "Download and build codec and audio dependencies automatically" ON)
 option(MAJIMIX_INSTALL_PKG_CONFIG "Install the pkg-config metadata on Unix platforms" ${UNIX})
 option(MAJIMIX_ENABLE_WARNINGS "Enable compiler warnings for Majimix sources" ON)
+option(MAJIMIX_BUILD_EXAMPLES "Build Majimix example programs" ${PROJECT_IS_TOP_LEVEL})
 
 set(default_build_type "Release")
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -72,6 +74,7 @@ endif()
 target_include_directories(${MAJIMIX_LIB_NAME}
     PUBLIC
         $<BUILD_INTERFACE:${MAJIMIX_GENERATED_INCLUDE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -110,6 +113,56 @@ install(TARGETS ${MAJIMIX_LIB_NAME}
 install(FILES "${MAJIMIX_CONFIGURED_HEADER}"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/majimix"
 )
+
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+)
+
+if(MAJIMIX_BUILD_EXAMPLES)
+    add_executable(majimix_fade_playback_example
+        examples/fade_playback.cpp
+    )
+
+    add_executable(majimix_reverb_playback_example
+        examples/reverb_playback.cpp
+    )
+
+    add_executable(majimix_flanger_playback_example
+        examples/flanger_playback.cpp
+    )
+
+    add_executable(majimix_vibrato_playback_example
+        examples/vibrato_playback.cpp
+    )
+
+    add_executable(majimix_chorus_playback_example
+        examples/chorus_playback.cpp
+    )
+
+    target_compile_features(majimix_fade_playback_example PRIVATE cxx_std_17)
+    target_compile_features(majimix_reverb_playback_example PRIVATE cxx_std_17)
+    target_compile_features(majimix_flanger_playback_example PRIVATE cxx_std_17)
+    target_compile_features(majimix_vibrato_playback_example PRIVATE cxx_std_17)
+    target_compile_features(majimix_chorus_playback_example PRIVATE cxx_std_17)
+    target_link_libraries(majimix_fade_playback_example PRIVATE Majimix::pa)
+    target_link_libraries(majimix_reverb_playback_example PRIVATE Majimix::pa)
+    target_link_libraries(majimix_flanger_playback_example PRIVATE Majimix::pa)
+    target_link_libraries(majimix_vibrato_playback_example PRIVATE Majimix::pa)
+    target_link_libraries(majimix_chorus_playback_example PRIVATE Majimix::pa)
+endif()
+
+if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL)
+    add_executable(majimix_effects_smoke
+        tests/effects_smoke.cpp
+    )
+
+    target_compile_features(majimix_effects_smoke PRIVATE cxx_std_17)
+    target_include_directories(majimix_effects_smoke PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+
+    add_test(NAME majimix_effects_smoke COMMAND majimix_effects_smoke)
+endif()
 
 configure_package_config_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MajimixConfig.cmake.in"
