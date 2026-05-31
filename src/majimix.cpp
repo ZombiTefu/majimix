@@ -80,6 +80,7 @@ struct MixerChannel {
 	std::atomic<bool> stopped;
 	std::atomic<bool> paused;
 	std::atomic<bool> loop;
+	std::atomic<PlaybackStopReason> stop_reason;
 	
 
 	std::unique_ptr<Sample> sample;
@@ -100,6 +101,7 @@ MixerChannel::MixerChannel()
   stopped {true},
   paused  {false},
   loop    {false},
+	stop_reason {PlaybackStopReason::EndOfStream},
   sample  {nullptr},
   sid {0}
 
@@ -130,6 +132,9 @@ class MajimixPa : public Majimix  {
 
 	/* 0 - 255 */
 	std::atomic_int master_volume = 128;
+	std::atomic<unsigned int> playback_callback_version {0};
+	std::atomic<PlaybackEventCallback> playback_callback {nullptr};
+	std::atomic<void *> playback_callback_user_data {nullptr};
 
 	/* internal mixing data */
 	std::vector<int32_t> internal_mix_buffer;
@@ -147,6 +152,12 @@ class MajimixPa : public Majimix  {
 	void encode_Nbits(std::vector<char>::iterator it_out, int vol);
 	using fn_encode = std::function<void(std::vector<char>::iterator it_out, int vol)>;
 	fn_encode encode;
+
+	bool get_playback_event_callback(PlaybackEventCallback &callback, void *&user_data) const;
+	void emit_playback_event(const PlaybackEvent &event) const;
+	void emit_loop_event(int source_id, int channel_id, int loop_count) const;
+	void emit_stop_event(int source_id, int channel_id, PlaybackStopReason reason) const;
+	void drop_regular_channel(MixerChannel &channel, int channel_id, PlaybackStopReason reason);
 
 	void mix(std::vector<char>::iterator it_out, int requested_sample_count);
 	void read(char *out_buffer, int requested_sample_count);
@@ -241,6 +252,7 @@ public:
 	int play_source(int source_handle, bool loop = false, bool paused = false) override;
 	void stop_playback(int play_handle) override;
 	void set_loop(int play_handle, bool loop) override;
+	void set_playback_event_callback(PlaybackEventCallback callback, void *user_data = nullptr) override;
     void pause_resume_playback(int play_handle, bool pause) override;
 
 	void pause_producer(bool);
@@ -340,6 +352,76 @@ bool MajimixPa::set_mixer_buffer_parameters(int buffer_count, int buffer_sample_
 			cartridge->reserve_lines_buffer(mixer->get_buffer_packet_sample_size());
 
 	return true;
+}
+
+bool MajimixPa::get_playback_event_callback(PlaybackEventCallback &callback, void *&user_data) const
+{
+	// Read callback + user_data as a consistent pair without taking a lock in the audio path.
+	// The writer makes playback_callback_version odd while publishing a new pair, then even again
+	// once both values are visible. If the version changes during the read, we retry.
+	for(;;)
+	{
+		const unsigned int version_before = playback_callback_version.load(std::memory_order_acquire);
+		if(version_before & 1U)
+			continue;
+
+		callback = playback_callback.load(std::memory_order_acquire);
+		user_data = playback_callback_user_data.load(std::memory_order_acquire);
+
+		const unsigned int version_after = playback_callback_version.load(std::memory_order_acquire);
+		if(version_before == version_after)
+			return callback != nullptr;
+	}
+}
+
+void MajimixPa::emit_playback_event(const PlaybackEvent &event) const
+{
+	PlaybackEventCallback callback = nullptr;
+	void *user_data = nullptr;
+	if(get_playback_event_callback(callback, user_data))
+		callback(event, user_data);
+}
+
+void MajimixPa::emit_loop_event(int source_id, int channel_id, int loop_count) const
+{
+	if(source_id <= 0 || channel_id <= 0 || loop_count <= 0)
+		return;
+
+	PlaybackEvent event;
+	event.type = PlaybackEventType::Loop;
+	event.play_handle = get_handle(source_id, channel_id);
+	event.source_handle = source_id;
+	event.loop_count = loop_count;
+	emit_playback_event(event);
+}
+
+void MajimixPa::emit_stop_event(int source_id, int channel_id, PlaybackStopReason reason) const
+{
+	if(source_id <= 0 || channel_id <= 0)
+		return;
+
+	PlaybackEvent event;
+	event.type = PlaybackEventType::Stop;
+	event.play_handle = get_handle(source_id, channel_id);
+	event.source_handle = source_id;
+	event.stop_reason = reason;
+	emit_playback_event(event);
+}
+
+void MajimixPa::drop_regular_channel(MixerChannel &channel, int channel_id, PlaybackStopReason reason)
+{
+	const bool was_active = channel.active.load(std::memory_order_acquire);
+	const int source_id = channel.sid.load(std::memory_order_acquire);
+	if(was_active)
+		emit_stop_event(source_id, channel_id, reason);
+
+	channel.stopped = true;
+	channel.paused = false;
+	channel.loop = false;
+	channel.stop_reason = PlaybackStopReason::EndOfStream;
+	channel.active = false;
+	channel.sample.reset();
+	channel.sid = 0;
 }
 
 /* ------------------- MIXER ------------------------ */
@@ -563,13 +645,11 @@ bool MajimixPa::drop_source(int source_handle)
 	if (source_handle == 0)
 	{
 		// drop all
+		int channel_id = 0;
 		for (auto &mix_channel : mixer_channels)
 		{
-			mix_channel->active = false;
-			mix_channel->paused = false;
-			mix_channel->loop = false;
-			mix_channel->sample.reset();
-			mix_channel->sid = 0;
+			++channel_id;
+			drop_regular_channel(*mix_channel, channel_id, PlaybackStopReason::SourceDropped);
 		}
 
 		for (auto &s : sources)
@@ -585,15 +665,13 @@ bool MajimixPa::drop_source(int source_handle)
 		// Regular sources
 		if (source_type == 0)
 		{
+			int channel_id = 0;
 			for (auto &mix_channel : mixer_channels)
 			{
+				++channel_id;
 				if (mix_channel->sid == source_id)
 				{
-					mix_channel->active = false;
-					mix_channel->paused = false;
-					mix_channel->loop = false;
-					mix_channel->sample.reset();
-					mix_channel->sid = 0;
+					drop_regular_channel(*mix_channel, channel_id, PlaybackStopReason::SourceDropped);
 				}
 			}
 
@@ -647,6 +725,7 @@ int MajimixPa::play_source(int source_handle, bool loop, bool paused)
 				mix_channel->stopped = false;
 				mix_channel->loop    = loop;
 				mix_channel->paused  = paused;
+				mix_channel->stop_reason = PlaybackStopReason::EndOfStream;
 				mix_channel->active  = true;
 
 				return get_handle(source_id, pid);
@@ -696,18 +775,24 @@ void MajimixPa::stop_playback(int play_handle)
 		// stop all
 
 		// Channels
+		int channel_id = 0;
 		for (auto& mix_channel : mixer_channels)
 		{
+			++channel_id;
 			if (mix_channel->active)
 			{
+				const int source_id = mix_channel->sid.load(std::memory_order_acquire);
+				mix_channel->stop_reason = PlaybackStopReason::ExplicitStop;
 				mix_channel->stopped = true;
 				mix_channel->paused = false;
 
 				// TODO:  Please verify this !
 				if (!m_stream) 
 				{
+					emit_stop_event(source_id, channel_id, PlaybackStopReason::ExplicitStop);
 					mix_channel->loop = false;   // XXX needed ?
 					mix_channel->active = false; // XXX needed ?
+					mix_channel->stop_reason = PlaybackStopReason::EndOfStream;
 				}
 			}
 		}
@@ -745,20 +830,32 @@ void MajimixPa::stop_playback(int play_handle)
 				auto &channel = mixer_channels[channel_id - 1];
 				if (channel->active && static_cast<int>(source_id) == channel->sid)
 				{
+					channel->stop_reason = PlaybackStopReason::ExplicitStop;
 					channel->stopped = true;
 					if(!m_stream) 
+					{
+						emit_stop_event(static_cast<int>(source_id), static_cast<int>(channel_id), PlaybackStopReason::ExplicitStop);
 							channel->active = false;
+						channel->stop_reason = PlaybackStopReason::EndOfStream;
+					}
 				}
 			}
 			else
 			{
+				int current_channel_id = 0;
 				for (auto &channel : mixer_channels)
 				{
+					++current_channel_id;
 					if (channel->active && static_cast<int>(source_id) == channel->sid)
 					{
+						channel->stop_reason = PlaybackStopReason::ExplicitStop;
 						channel->stopped = true;
 						if(!m_stream) 
+						{
+							emit_stop_event(static_cast<int>(source_id), current_channel_id, PlaybackStopReason::ExplicitStop);
 							channel->active = false;
+							channel->stop_reason = PlaybackStopReason::EndOfStream;
+						}
 					}
 				}
 			}
@@ -803,6 +900,18 @@ void MajimixPa::set_loop(int play_handle, bool loop)
 	{
 		mixer_channels[channel_id-1]->loop = loop;
 	}
+}
+
+void MajimixPa::set_playback_event_callback(PlaybackEventCallback callback, void *user_data)
+{
+	// Publish a new callback pair in three steps:
+	// 1. mark update in progress with an odd version,
+	// 2. store callback and user_data,
+	// 3. mark the state stable again with an even version.
+	playback_callback_version.fetch_add(1, std::memory_order_acq_rel);
+	playback_callback.store(callback, std::memory_order_release);
+	playback_callback_user_data.store(user_data, std::memory_order_release);
+	playback_callback_version.fetch_add(1, std::memory_order_acq_rel);
 }
 
 
@@ -920,13 +1029,17 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 	int sample_count;
 	bool deactivate;
 	bool mix_buffer_has_data = false;
+	int channel_id = 0;
 
 	std::fill(internal_mix_buffer.begin(), internal_mix_buffer.end(), 0);
 
 	for(auto& mix_channel : mixer_channels)
 	{
+		++channel_id;
 		if(mix_channel->active)
 		{
+			const int source_id = mix_channel->sid.load(std::memory_order_acquire);
+			int loop_count = 0;
 			sample_count = 0;
 			deactivate =  false;
 			if(mix_channel->stopped || !mix_channel->sample)
@@ -943,8 +1056,15 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 					{
 						// EOF - AUTOLOOP 
 						long idx = static_cast<long>(sample_count) * channels;
-						sample_count += mix_channel->sample->read(target_buffer + idx, requested_sample_count - sample_count);
+						int loop_sample_count = mix_channel->sample->read(target_buffer + idx, requested_sample_count - sample_count);
+						if(loop_sample_count <= 0)
+							break;
+						sample_count += loop_sample_count;
+						++loop_count;
 					}
+
+					if(loop_count)
+						emit_loop_event(source_id, channel_id, loop_count);
 				}
 
 				if(sample_count)
@@ -965,8 +1085,11 @@ void MajimixPa::mix(std::vector<char>::iterator it_out, int requested_sample_cou
 			}
 			if(deactivate)
 			{
+				const PlaybackStopReason stop_reason = mix_channel->stop_reason.load(std::memory_order_acquire);
+				emit_stop_event(source_id, channel_id, stop_reason);
 				mix_channel->stopped = true;
 				mix_channel->active = false;
+				mix_channel->stop_reason = PlaybackStopReason::EndOfStream;
 			}
 		}
 	}
